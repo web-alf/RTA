@@ -1,0 +1,19 @@
+# Konteks build = root repo (docker build -f apps/api/Dockerfile .). Image produksi hanya butuh API + migrasi + seed data master.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.gitignore
+.codegraph
+.vscode
+.claude
+docs
+*.md
+*.sql
+apps/web
+apps/api/dev
+apps/api/test
+apps/api/storage

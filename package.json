@@ -1,0 +1,25 @@
+{
+  "name": "rta-dashboard",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "api": "bun run --cwd apps/api dev",
+    "web": "bun run --cwd apps/web dev",
+    "db:migrate": "bun run --cwd apps/api db:migrate",
+    "db:seed": "bun run --cwd apps/api db:seed",
+    "db:admin": "bun run --cwd apps/api db:admin",
+    "db:seed-dev": "bun run --cwd apps/api db:seed-dev",
+    "build": "bun run --cwd apps/web build",
+    "build:api": "bun run --cwd apps/api build",
+    "cron": "bun run --cwd apps/api cron",
+    "start": "bun run --cwd apps/api start",
+    "db:demo": "bun run --cwd apps/api db:demo",
+    "db:reset": "bun run --cwd apps/api db:reset",
+    "db:fresh": "bun run --cwd apps/api db:fresh",
+    "test:e2e": "bun run --cwd apps/api test:e2e",
+    "test:bill": "bun run --cwd apps/api test:bill",
+    "typecheck": "bun run --cwd apps/api typecheck && cd apps/web && bunx tsc --noEmit -p ."
+  }
+}

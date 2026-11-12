@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+html { font-size: 16px; }
+html.text-besar { font-size: 17.5px; }   /* preferensi "Ukuran teks: Besar" di Profil */
+html, body { background: #fcf8fb; color: #2d0b26; font-family: "Plus Jakarta Sans", system-ui, sans-serif; }
+* { scrollbar-width: none; }               /* scrollbar disembunyikan, area tetap bisa digeser */
+*::-webkit-scrollbar { display: none; }
+*:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #ad1d8e; border-radius: 10px; }
+.tnum { font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+@layer components {
+  .h1 { @apply font-display font-black text-[22px] md:text-[28px] leading-tight; }
+  .h2 { @apply font-display font-extrabold text-base md:text-[17px]; }
+  .num { @apply font-display font-black tnum; }
+  .card { @apply bg-white rounded-card shadow-card; }
+  .panel { @apply card; }
+  .btn { @apply inline-flex items-center justify-center gap-2 h-11 md:h-10 px-4 rounded-full text-sm font-bold transition disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap; }
+  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700 shadow-brand; }
+  .btn-secondary { @apply btn bg-white text-brand-800 shadow-soft hover:bg-n-50; }
+  .btn-soft { @apply btn bg-n-50 text-brand-800 hover:bg-n-100; }
+  .btn-text { @apply btn text-brand-700 hover:bg-brand-50 px-3 shadow-none; }
+  .btn-danger { @apply btn bg-danger text-white hover:opacity-90; }
+  .btn-wa { @apply btn bg-mint-bg text-mint-fg hover:brightness-95; }
+  .icon-btn { @apply inline-flex items-center justify-center w-11 h-11 rounded-full bg-white text-brand-800 shadow-soft hover:bg-n-50 shrink-0; }
+  .input { @apply w-full h-12 md:h-11 px-4 rounded-control border-[1.5px] border-n-300 bg-white text-sm placeholder:text-n-500 focus:border-brand-600; }
+  textarea.input { @apply h-auto py-3; }
+  /* Panah dropdown sendiri agar tidak menempel di tepi kanan (terutama pada select berbentuk pil) */
+  select.input {
+    @apply appearance-none pr-11 bg-no-repeat cursor-pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b5766' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 16px center;
+    background-size: 16px;
+  }
+  .label { @apply block text-[13px] font-bold text-n-800 mb-2; }
+  .th { @apply text-left text-[13px] font-semibold text-n-600 px-3 py-3 bg-white; }
+  .td { @apply px-3 py-3 text-sm border-t border-n-100 align-middle; }
+  .pill { @apply inline-flex items-center gap-1.5 h-[26px] px-3 rounded-full text-xs font-bold whitespace-nowrap; }
+  .chip { @apply inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-semibold whitespace-nowrap transition; }
+  .chip-on { @apply chip bg-brand-600 text-white shadow-brand; }
+  .chip-off { @apply chip bg-white text-brand-800 shadow-chip hover:bg-n-50; }
+  .scroll-x { @apply flex gap-2 overflow-x-auto -mx-4 px-4 py-1 md:mx-0 md:px-0; }
+}

@@ -1,0 +1,13 @@
+{
+  // Build ke JavaScript (CommonJS) untuk hosting Node, mis. cPanel "Setup Node.js App": bun run build → dist/
+  // Tipe "bun" sengaja tidak dimuat: pemakaian API khusus Bun (Bun.*) di src/ atau scripts/ jadi error saat build.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": ["node", "multer"],
+    "incremental": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*", "scripts/**/*"]
+}

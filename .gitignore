@@ -1,0 +1,25 @@
+# Dependensi & hasil build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Secret: hanya .env.example yang boleh masuk repo
+.env
+.env.*
+!.env.example
+
+# Bukti bayar wali & file unggahan (DATA PRIBADI, jangan pernah di-commit)
+storage/
+apps/api/storage/
+
+# Berkas lokal (query manual, dump DB, log)
+*.session.sql
+*.dump
+*.backup
+*.log
+
+# Editor & alat bantu
+.codegraph/
+.claude/settings.local.json
+.DS_Store
+Thumbs.db

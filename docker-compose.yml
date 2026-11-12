@@ -1,0 +1,20 @@
+# Dev: `docker compose up -d db` untuk PostgreSQL saja.
+# Semua (db + api): `docker compose --profile full up -d`. Web dibangun statis (bun run build) dan di-hosting terpisah.
+services:
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: rta, POSTGRES_PASSWORD: rta, POSTGRES_DB: rta }
+    ports: ['5432:5432']
+    volumes: ['rta_pg:/var/lib/postgresql/data']
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -U rta'], interval: 5s, retries: 10 }
+  api:
+    profiles: ['full']
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    env_file: apps/api/.env
+    environment: { DATABASE_URL: postgres://rta:rta@db:5432/rta, STORAGE_DIR: /data/storage }
+    ports: ['3000:3000']
+    volumes: ['rta_storage:/data/storage'] # bukti pembayaran; sertakan dalam backup
+    depends_on: { db: { condition: service_healthy } }
+volumes:
+  rta_pg:
+  rta_storage:
