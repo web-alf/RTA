@@ -23,3 +23,7 @@ apps/api/storage/
 .claude/settings.local.json
 .DS_Store
 Thumbs.db
+
+# Konfigurasi deploy lokal (berisi token Cloudflare)
+deploy/deploy.local.env
+backups/

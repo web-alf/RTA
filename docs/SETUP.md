@@ -123,7 +123,7 @@ API dikompilasi ke JavaScript di laptop, lalu dijalankan Node di hosting. Databa
    - Node.js version **20.x** (atau 22.x), Application mode **Production**.
    - Application root `rta-api`, Startup file `dist/src/main.js`.
    - Application URL: alamat web + `/api` (mis. `rta.domain-anda.id/api`), supaya web dan API satu domain.
-   - Environment variables: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WEB_ORIGIN`, `PUBLIC_WEB_URL`, `COOKIE_SECURE=true`, `TRUST_PROXY=1`, `DISABLE_SCHEDULER=true`, `STORAGE_DIR=/home/<akun>/rta-storage` (di luar `public_html`).
+   - Environment variables: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WEB_ORIGIN`, `PUBLIC_WEB_URL`, `COOKIE_SECURE=true`, `BASE_PATH=/api`, `TRUST_PROXY=1`, `DISABLE_SCHEDULER=true`, `STORAGE_DIR=/home/<akun>/rta-storage` (di luar `public_html`).
    - Klik **Run NPM Install**, lalu **Restart**.
 5. **Env untuk Terminal & Cron:** env di layar aplikasi tidak terbaca oleh Terminal/Cron. Buat `~/rta-api/.env` berisi nilai yang sama (`chmod 600`), dipakai lewat `node --env-file=.env` (Node 20.6+). Jaga isinya tetap sama dengan layar aplikasi.
 6. **Migrasi, seed, akun PJ pertama** (cPanel → Terminal; perintah masuk virtualenv tertera di bagian atas halaman aplikasi Node):
@@ -138,11 +138,11 @@ API dikompilasi ke JavaScript di laptop, lalu dijalankan Node di hosting. Databa
    ```
    cd ~/rta-api && ~/nodevenv/rta-api/20/bin/node --env-file=.env dist/scripts/cron.js >> ~/rta-cron.log 2>&1
    ```
-8. **Uji:** buka `https://rta.domain-anda.id/api/auth/me` → harus JSON 401 (belum masuk), **bukan 404**. Bila 404, berarti awalan `/api` tidak dibuang sebelum sampai ke API; hubungi dukungan hosting atau pasang API di subdomain sendiri. Setelah login, cek menu Profil → *Perangkat aktif*: IP harus IP Anda, bukan `127.0.0.1`. Bila salah, sesuaikan `TRUST_PROXY`.
+8. **Uji:** buka `https://rta.domain-anda.id/api/auth/me` → harus JSON 401 (belum masuk), **bukan 404**. Pesan "check availability ... content type" saat *Run NPM Install* tidak berbahaya (alamat aplikasi berubah dari HTML ke JSON). Passenger meneruskan alamat **lengkap** (`/api/auth/me`) ke API, sehingga `BASE_PATH=/api` wajib diisi; tanpanya hasilnya 404 JSON. Setelah mengubah env, **Restart** aplikasi. Setelah login, cek menu Profil → *Perangkat aktif*: IP harus IP Anda, bukan `127.0.0.1`. Bila salah, sesuaikan `TRUST_PROXY`.
 
 Batas resource hosting (RAM, proses, CPU) dipantau di cPanel → *Resource Usage*; ekspor PDF/Excel besar paling banyak memakan memori.
 
-Env produksi: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WEB_ORIGIN=https://app.domain-anda.id`, `PUBLIC_WEB_URL=https://app.domain-anda.id`, `BANK_NAME`, `BANK_ACCOUNT`, `BANK_HOLDER`, `STORAGE_DIR`, `COOKIE_SECURE=true`, `PORT`, `TRUST_PROXY` (jumlah proxy di depan API, biasanya `1`; lihat `.env.example`).
+Env produksi: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `WEB_ORIGIN=https://app.domain-anda.id`, `PUBLIC_WEB_URL=https://app.domain-anda.id`, `BANK_NAME`, `BANK_ACCOUNT`, `BANK_HOLDER`, `STORAGE_DIR`, `COOKIE_SECURE=true`, `PORT`, `TRUST_PROXY` (jumlah proxy di depan API, biasanya `1`), `BASE_PATH` (`/api` hanya di cPanel; kosong di Docker/VPS). Lihat `.env.example`.
 
 **Penyimpanan bukti pembayaran.** Saat ini disimpan di disk (`STORAGE_DIR`). Di Docker, pasang volume agar file tidak hilang saat container dibuat ulang: `docker run -v rta-storage:/data/storage …` (image memakai `STORAGE_DIR=/data/storage`). Platform tanpa disk permanen (mis. sebagian PaaS) perlu adapter Supabase Storage/S3; antarmukanya kecil (`put`/`get` di `apps/api/src/common/storage.service.ts`). Sertakan folder ini dalam backup.
 
@@ -195,9 +195,22 @@ Akun wajib ganti password saat login pertama; akun lain dibuat PJ lewat menu Aku
 | `Export named 'X' not found in module` saat start | Import tipe ditulis tanpa `type`. Ubah ke `import type { X } from '...'` |
 | `Cannot find package 'xyz'` | Paket dipakai langsung tapi tidak ada di `package.json` (Bun tidak meng-hoist). `bun add --cwd apps/api xyz` |
 | Login berhasil tapi reload langsung keluar | Web dan API beda domain tanpa proxy; cookie tidak terkirim |
+| `/api/...` menjawab 404 JSON di cPanel, padahal API jalan | `BASE_PATH=/api` belum diisi (Passenger tidak membuang awalan `/api`). Isi, lalu Restart. Sebaliknya, di Docker/VPS dengan proxy yang membuang `/api`, `BASE_PATH` harus kosong |
 | Banyak pengguna mendapat 429 "terlalu banyak permintaan" bersamaan; IP di *Perangkat aktif* selalu `127.0.0.1` / IP server | API di belakang proxy tapi `TRUST_PROXY` belum diisi. Isi jumlah proxy di depan API (biasanya `1`), lalu restart |
 | `Akun dikunci sementara` | 5x salah password. PJ/Admin: menu Akun → *Buka kunci* |
 | Impor gagal semua | Lihat daftar baris bermasalah; tanggal `YYYY-MM-DD`, no. WA diawali 08/+62 |
 | Link tagihan wali "tidak berlaku" | Link berlaku 30 hari dan dicabut saat link baru dibuat untuk keluarga yang sama; kirim ulang dari menu Bayar |
 | Tagihan SPP bulan ini belum muncul | API belum berjalan sejak tanggal 1, atau `DISABLE_SCHEDULER=true`. PJ bisa memicu manual: `POST /spp/generate` |
 | Unggah bukti ditolak | Format harus JPG/PNG/WebP/PDF ≤ 5 MB; file diperiksa dari isinya, bukan ekstensinya |
+
+## Deploy otomatis ke VPS + Cloudflare (Makefile)
+
+Docker + Caddy di VPS (TLS otomatis), DNS & SSL diatur lewat API Cloudflare. File: `Makefile`, `deploy/`.
+
+```bash
+cp deploy/deploy.example.env deploy/deploy.local.env   # isi VPS_HOST, DOMAIN, CF_ZONE_ID, CF_API_TOKEN
+make first-deploy   # setup VPS → config rahasia → DNS → SSL strict → deploy → IP Cloudflare → cek
+make admin          # akun PJ pertama
+```
+Rutin: `git commit` lalu `make deploy` · `make logs S=api` · `make backup` (db + bukti bayar → `./backups/`, data pribadi, simpan aman) · `make help`.
+Yang dikirim adalah commit terakhir (`git archive HEAD`). Rahasia server ada di `/opt/rta/config/` (tidak masuk git). Token Cloudflare cukup izin Zone.DNS:Edit + Zone.Zone Settings:Edit pada satu zone.

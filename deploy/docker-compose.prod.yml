@@ -1,0 +1,43 @@
+# Produksi VPS: db + api + web(Caddy). Dijalankan lewat Makefile (`make deploy`).
+# Konfigurasi rahasia ada di server: /opt/rta/config/compose.env dan /opt/rta/config/api.env (tidak masuk git).
+name: rta
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rta
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di compose.env}
+      POSTGRES_DB: rta
+    volumes: ['rta_pg:/var/lib/postgresql/data']
+    healthcheck: { test: ['CMD-SHELL', 'pg_isready -U rta'], interval: 5s, retries: 10 }
+    # Tanpa `ports`: database hanya terjangkau dari jaringan Docker.
+
+  api:
+    build: { context: .., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
+    env_file: /opt/rta/config/api.env
+    environment:
+      DATABASE_URL: postgres://rta:${POSTGRES_PASSWORD}@db:5432/rta
+      STORAGE_DIR: /data/storage
+      NODE_ENV: production
+      BASE_PATH: ''
+    volumes: ['rta_storage:/data/storage'] # bukti pembayaran (data pribadi): ikut di `make backup`
+    depends_on: { db: { condition: service_healthy } }
+    # Tanpa `ports`: hanya Caddy yang meneruskan /api.
+
+  web:
+    build: { context: .., dockerfile: deploy/Dockerfile.web }
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?isi DOMAIN di compose.env}
+      CF_TRUSTED_PROXIES: ${CF_TRUSTED_PROXIES:-private_ranges}
+    ports: ['80:80', '443:443', '443:443/udp']
+    volumes: ['caddy_data:/data', 'caddy_config:/config']
+    depends_on: [api]
+
+volumes:
+  rta_pg:
+  rta_storage:
+  caddy_data:
+  caddy_config:

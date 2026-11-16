@@ -1,0 +1,15 @@
+# Web statis (Vite) + Caddy. Konteks build = root repo:
+#   docker build -f deploy/Dockerfile.web .   (daftar abaikan: deploy/Dockerfile.web.dockerignore)
+FROM oven/bun:1 AS build
+WORKDIR /app
+COPY package.json bun.lock* ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+RUN bun install --frozen-lockfile --filter rta-web
+COPY apps/web apps/web
+WORKDIR /app/apps/web
+RUN bun run build
+
+FROM caddy:2-alpine
+COPY --from=build /app/apps/web/dist /srv
+COPY deploy/Caddyfile /etc/caddy/Caddyfile

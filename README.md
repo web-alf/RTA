@@ -1,4 +1,4 @@
-# Dashboard RTA — Fase 1 + 2A + 2B + 3
+# Dashboard RTA
 
 Dashboard manajemen Rumah Tahfidz Al-Fatihah: santri, keluarga, ustadzah, kelas & capaian hafalan, SPP & pembayaran (termasuk halaman bukti untuk wali), LPS, pengajuan keluar/mutasi, profil, role, akun, audit log. Tampilan tema G (berry #ad1d8e), responsif desktop/tablet/HP.
 
@@ -12,11 +12,11 @@ docs/      SETUP.md · PANDUAN.md · API.md · prd.md · design.md · diagram dr
 
 ## Yang perlu dipasang
 
-| Alat | Versi | Cara |
-|---|---|---|
-| **Bun** | ≥ 1.1 | Linux/macOS: `curl -fsSL https://bun.sh/install \| bash` · Windows: `powershell -c "irm bun.sh/install.ps1 \| iex"` |
-| **PostgreSQL** | 14+ | Docker (`docker compose up -d db`) **atau** project Supabase |
-| Git | — | untuk clone |
+| Alat           | Versi | Cara                                                                                                                |
+| -------------- | ----- | ------------------------------------------------------------------------------------------------------------------- |
+| **Bun**        | ≥ 1.1 | Linux/macOS: `curl -fsSL https://bun.sh/install \| bash` · Windows: `powershell -c "irm bun.sh/install.ps1 \| iex"` |
+| **PostgreSQL** | 14+   | Docker (`docker compose up -d db`) **atau** project Supabase                                                        |
+| Git            | —     | untuk clone                                                                                                         |
 
 Node.js **tidak** diperlukan.
 
@@ -34,12 +34,12 @@ bun run web        # terminal 2                #    web → buka http://localhos
 
 Akun uji **lokal** (dari `dev/seed-dev.ts`, wajib ganti password saat login pertama). Di produksi akun ini **tidak** dibuat; lihat [docs/SETUP.md](docs/SETUP.md) bagian B:
 
-| Email | Role | Password |
-|---|---|---|
-| pj@rta.local | PJ RTA | Rta12345 |
-| ustadzah.spy@rta.local | Ustadzah (cabang Supriyadi) | Rta12345 |
-| manajer@rta.local | Manajer | Rta12345 |
-| wali@rta.local | Wali Santri (hanya dari data contoh `db:demo`) | Rta12345 |
+| Email                  | Role                                           | Password |
+| ---------------------- | ---------------------------------------------- | -------- |
+| pj@rta.local           | PJ RTA                                         | Rta12345 |
+| ustadzah.spy@rta.local | Ustadzah (cabang Supriyadi)                    | Rta12345 |
+| manajer@rta.local      | Manajer                                        | Rta12345 |
+| wali@rta.local         | Wali Santri (hanya dari data contoh `db:demo`) | Rta12345 |
 
 Untuk development (termasuk dengan Claude Code di VS Code), baca **[CLAUDE.md](CLAUDE.md)**: aturan arsitektur, keamanan, domain, dan tema. Perintah penting:
 
@@ -56,22 +56,22 @@ Dokumentasi: [docs/SETUP.md](docs/SETUP.md) (pasang & deploy) · [docs/PANDUAN.m
 
 ## Fitur
 
-| Modul | Status |
-|---|---|
-| Login + kunci akun (3x tunggu 5 menit, 5x kunci 5 jam), refresh token, ganti password | ✅ |
-| Profil: data diri, perangkat yang sedang masuk, keluarkan perangkat, keluar dari semua perangkat, preferensi notifikasi & ukuran teks | ✅ |
-| Role & permission (checklist per menu), role inti terkunci | ✅ |
-| Akun, ustadzah (multi-cabang, pengganti bertanggal akhir), wali (satu keluarga banyak santri) | ✅ |
-| Santri: form 4 langkah, ID santri otomatis `RTA-<cabang>-001`, tarif khusus/subsidi (PJ), cuti/aktif, tab hafalan & tagihan | ✅ |
-| Pengajuan keluar & mutasi: layar tinjau PJ, cek tunggakan & kelas tujuan, tarik pengajuan, biaya pindah otomatis | ✅ |
-| **Kelas & hafalan**: roster per kelas, status input pekan ini, tren 4 pekan, input dengan rumus PRD + validasi | ✅ |
-| **SPP (rekap)**: tagihan otomatis tiap tgl 1, daftar ulang, pendaftaran; rekap per santri dengan riwayat 6 bulan | ✅ |
-| **Bayar**: kirim tagihan via WhatsApp (satu/terpilih/semua), link bertoken untuk wali, catat tunai/bukti WA, verifikasi PJ, pembatalan beralasan | ✅ |
-| **Halaman wali** `/bayar/:token`: rincian tagihan + unggah bukti (dikompres di HP), tanpa login | ✅ |
-| **LPS**: draft massal (hafalan ditarik otomatis), Draft → Diperiksa → Disetujui → Terbit, grafik, PDF; ustadzah hanya baca | ✅ |
-| Dashboard: santri, keuangan bulan ini, capaian per kelas, progres terbaik, kartu *Perlu tindakan* | ✅ |
-| Impor CSV/Excel (.xlsx) & ekspor PDF, audit log | ✅ |
-| Pengiriman notifikasi otomatis (WA/email), integrasi mutasi bank (Moota), absensi | Fase 4 |
+| Modul                                                                                                                                            | Status |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| Login + kunci akun (3x tunggu 5 menit, 5x kunci 5 jam), refresh token, ganti password                                                            | ✅     |
+| Profil: data diri, perangkat yang sedang masuk, keluarkan perangkat, keluar dari semua perangkat, preferensi notifikasi & ukuran teks            | ✅     |
+| Role & permission (checklist per menu), role inti terkunci                                                                                       | ✅     |
+| Akun, ustadzah (multi-cabang, pengganti bertanggal akhir), wali (satu keluarga banyak santri)                                                    | ✅     |
+| Santri: form 4 langkah, ID santri otomatis `RTA-<cabang>-001`, tarif khusus/subsidi (PJ), cuti/aktif, tab hafalan & tagihan                      | ✅     |
+| Pengajuan keluar & mutasi: layar tinjau PJ, cek tunggakan & kelas tujuan, tarik pengajuan, biaya pindah otomatis                                 | ✅     |
+| **Kelas & hafalan**: roster per kelas, status input pekan ini, tren 4 pekan, input dengan rumus PRD + validasi                                   | ✅     |
+| **SPP (rekap)**: tagihan otomatis tiap tgl 1, daftar ulang, pendaftaran; rekap per santri dengan riwayat 6 bulan                                 | ✅     |
+| **Bayar**: kirim tagihan via WhatsApp (satu/terpilih/semua), link bertoken untuk wali, catat tunai/bukti WA, verifikasi PJ, pembatalan beralasan | ✅     |
+| **Halaman wali** `/bayar/:token`: rincian tagihan + unggah bukti (dikompres di HP), tanpa login                                                  | ✅     |
+| **LPS**: draft massal (hafalan ditarik otomatis), Draft → Diperiksa → Disetujui → Terbit, grafik, PDF; ustadzah hanya baca                       | ✅     |
+| Dashboard: santri, keuangan bulan ini, capaian per kelas, progres terbaik, kartu _Perlu tindakan_                                                | ✅     |
+| Impor CSV/Excel (.xlsx) & ekspor PDF, audit log                                                                                                  | ✅     |
+| Pengiriman notifikasi otomatis (WA/email), integrasi mutasi bank (Moota), absensi                                                                | Fase 4 |
 
 ## Aturan yang ditegakkan server (bukan hanya di tampilan)
 

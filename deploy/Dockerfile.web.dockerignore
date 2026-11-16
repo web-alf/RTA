@@ -1,0 +1,16 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+.git
+.codegraph
+.vscode
+.claude
+docs
+apps/api/src
+apps/api/dev
+apps/api/test
+apps/api/sql
+apps/api/scripts
+apps/api/storage

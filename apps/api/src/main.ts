@@ -17,10 +17,20 @@ function trustProxy(v = process.env.TRUST_PROXY?.trim()): boolean | number | str
   return /^\d+$/.test(v) ? Number(v) : v;
 }
 
+/**
+ * BASE_PATH → awalan URL seluruh rute API, mis. "/api". Isi HANYA bila hosting meneruskan alamat lengkap ke API tanpa membuang
+ * awalan (cPanel "Setup Node.js App" dengan Application URL "domain/api"). Kosong (bawaan, Docker/VPS/lokal): rute tanpa awalan,
+ * dan proxy (Vite/Caddy/nginx) yang membuang "/api".
+ */
+function basePath(v = process.env.BASE_PATH?.trim()): string {
+  return (v ?? '').replace(/^\/+|\/+$/g, '');
+}
+
 async function bootstrap() {
   for (const k of ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) if (!process.env[k]) throw new Error(`Env ${k} belum diisi (lihat .env.example)`);
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn', 'log'] });
   app.set('trust proxy', trustProxy());
+  if (basePath()) app.setGlobalPrefix(basePath());
   app.use(helmet());
   app.use(cookieParser());
   app.enableCors({ origin: (process.env.WEB_ORIGIN ?? 'http://localhost:5173').split(','), credentials: true });
