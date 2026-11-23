@@ -31,8 +31,7 @@ export default function Login() {
         <div aria-hidden className="absolute w-28 h-28 rounded-full bg-lilac-bg right-32 bottom-12 hidden md:block" />
         <div aria-hidden className="absolute w-20 h-20 rounded-[26px] bg-mint-bg left-[45%] top-[38%] -rotate-12 hidden md:block" />
         <div className="relative flex items-center">
-          <img src="/logo.png" alt="" className="h-12 w-auto shrink-0" />
-          <span className="font-display font-black text-lg md:text-xl">Rumah Tahfidz Al-Fatihah</span>
+          <img src="/logo-full.webp" alt="Rumah Tahfidz Al-Fatihah" width={960} height={232} className="h-14 md:h-16 w-auto" />
         </div>
         <div className="relative max-w-md hidden md:block">
           <h1 className="font-display font-black text-[40px] leading-tight">Santri, hafalan, dan SPP dalam satu tempat.</h1>
