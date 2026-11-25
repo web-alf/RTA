@@ -6,6 +6,7 @@ import { printedBy, rp, sendPdf, sendXlsx } from '../../common/report';
 import type { Sheet } from '../../common/report';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 import { Db } from '../../db/db.module';
+import { FAMILY_LABEL } from '../families/families.module';
 import { CurrentUser, Perm } from '../../common/auth';
 import type { AuthUser } from '../../common/auth';
 import { AuditService } from '../../common/audit.service';
@@ -280,7 +281,7 @@ export class KasService {
   // ---------------- Penjualan ----------------
   async students(user: AuthUser, q?: string) {
     return this.db.many(
-      `SELECT s.id, s.full_name AS "fullName", s.nickname, s.family_id AS "familyId", c.name AS "className", b.id AS "branchId", b.name AS "branchName", f.father_name AS "familyName"
+      `SELECT s.id, s.full_name AS "fullName", s.nickname, s.family_id AS "familyId", c.name AS "className", b.id AS "branchId", b.name AS "branchName", ${FAMILY_LABEL()} AS "familyName"
        FROM students s JOIN classes c ON c.id = s.class_id JOIN branches b ON b.id = s.branch_id JOIN families f ON f.id = s.family_id
        WHERE s.status <> 'KELUAR' AND ($1::int[] IS NULL OR s.branch_id = ANY($1)) AND ($2::text IS NULL OR s.full_name ILIKE $2 OR s.nickname ILIKE $2 OR f.father_name ILIKE $2)
        ORDER BY s.full_name LIMIT 20`, [user.branchIds, q?.trim() ? `%${q.trim()}%` : null]);

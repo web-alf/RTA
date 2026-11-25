@@ -8,7 +8,10 @@ import { Alert, Avatar, Badge, Drawer, Empty, Field, KV, PageHeader, SearchBox }
 import { useToast } from '../components/Toast';
 
 const F = [['fatherName', 'Nama ayah'], ['motherName', 'Nama ibu'], ['guardianName', 'Nama wali'], ['guardianRelation', 'Hubungan wali'], ['waPhone', 'No. WA utama'], ['backupPhone', 'No. HP cadangan'], ['address', 'Alamat'], ['fatherJob', 'Pekerjaan ayah'], ['motherJob', 'Pekerjaan ibu']];
-const KID: Record<string, string> = { AKTIF: 'bg-mint-bg text-mint-fg', CUTI: 'bg-butter-bg text-butter-fg', INDENT: 'bg-lilac-bg text-lilac-fg', KELUAR: 'bg-n-100 text-n-700' };
+/** Data impor lama boleh tanpa nama ayah/ibu: label keluarga jatuh ke nama ibu, lalu penanda belum diisi. */
+const famName = (f: any) => f?.fatherName || f?.motherName || '(nama wali belum diisi)';
+const parents = (f: any) => [f.fatherName, f.motherName].filter(Boolean).join(' & ') || 'Nama orang tua belum diisi';
+const KID: Record<string, string> ={ AKTIF: 'bg-mint-bg text-mint-fg', CUTI: 'bg-butter-bg text-butter-fg', INDENT: 'bg-lilac-bg text-lilac-fg', KELUAR: 'bg-n-100 text-n-700' };
 
 export default function Wali() {
   const { user } = useAuth(); const toast = useToast(); const qc = useQueryClient();
@@ -28,12 +31,12 @@ export default function Wali() {
         <div className="space-y-3">{list.data?.map((f: any) => (
           <button key={f.id} onClick={() => { setSel(f); setForm({}); }} className={`card w-full text-left px-4 py-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 ${sel?.id === f.id ? 'ring-2 ring-brand-200' : ''}`}>
             <span className="w-12 h-12 rounded-2xl bg-butter-bg text-butter-fg flex items-center justify-center shrink-0"><House size={22} /></span>
-            <div className="flex-1 min-w-[180px]"><div className="font-display font-extrabold">Kel. {f.fatherName}</div><div className="text-xs text-n-600 truncate">{f.fatherName} & {f.motherName}{f.waPhone && f.waPhone !== 'Disembunyikan' ? ` · ${f.waPhone}` : ''}</div></div>
+            <div className="flex-1 min-w-[180px]"><div className="font-display font-extrabold">Kel. {famName(f)}</div><div className="text-xs text-n-600 truncate">{parents(f)}{f.waPhone && f.waPhone !== 'Disembunyikan' ? ` · ${f.waPhone}` : f.waPhone === null ? ' · No. WA belum diisi' : ''}</div></div>
             <div className="flex flex-wrap gap-1.5 flex-[2] min-w-[200px]">{f.kids.map((k: any) => <span key={k.id} className={`pill h-[30px] ${KID[k.status] ?? KID.KELUAR}`}><span className="w-1.5 h-1.5 rounded-full bg-current" />{k.name} · {k.branch}</span>)}{f.kids.length < f.studentCount && <span className="pill h-[30px] bg-n-50 text-n-600">+{f.studentCount - f.kids.length} di cabang lain</span>}</div>
             <span className="text-sm font-bold text-brand-700">Detail ›</span>
           </button>))}</div>}
 
-      {sel && <Drawer open onClose={() => { setSel(null); setForm({}); }} title={`Kel. ${sel.fatherName}`} sub={editing ? 'Ubah data keluarga' : 'Data keluarga'}
+      {sel && <Drawer open onClose={() => { setSel(null); setForm({}); }} title={`Kel. ${famName(sel)}`} sub={editing ? 'Ubah data keluarga' : 'Data keluarga'}
         footer={can(user, 'wali.edit') && d ? (editing ? <div className="flex gap-3"><button className="btn-secondary flex-1" onClick={() => setForm({})}>Batal</button><button className="btn-primary flex-[2]" onClick={save}>Simpan</button></div> : <button className="btn-primary w-full" onClick={edit}>Edit data keluarga</button>) : undefined}>
         {!d ? <div className="text-sm text-n-600">Memuat…</div> : editing ? <div className="space-y-4">{err && <Alert>{err}</Alert>}
           {F.map(([k, l]) => <Field key={k} label={l}><input className="input" value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} /></Field>)}

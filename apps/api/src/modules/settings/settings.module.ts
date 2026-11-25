@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Global, Injectable, Module, NotFoundException, Param, ParseIntPipe, Patch } from '@nestjs/common';
-import { IsBoolean, IsInt, IsOptional, IsString, Length, Matches, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Length, Matches, Max, MaxLength, Min } from 'class-validator';
 import { Db } from '../../db/db.module';
 import { CurrentUser, Perm } from '../../common/auth';
 import type { AuthUser } from '../../common/auth';
@@ -17,9 +17,15 @@ export const SETTING_DEFAULTS = {
   bankAccount: process.env.BANK_ACCOUNT ?? '7xxx xxx xxx',
   bankHolder: process.env.BANK_HOLDER ?? 'Yayasan Al-Fatihah',
   waTemplate: "Assalamu'alaikum Bapak/Ibu 🌿\nTagihan {tagihan} untuk {nama}: {total}.\nRincian dan unggah bukti transfer: {link}\nJazakumullahu khairan 🤍",
+  // absensi: hari belajar (ISO: 1 = Senin … 7 = Ahad), ambang "perlu perhatian", pesan WA ke wali
+  attendanceDays: [1, 2, 3, 4, 5] as number[],
+  attendanceAlpaStreak: 3,             // alpa berturut-turut (pertemuan) yang memicu tanda perlu perhatian
+  attendanceMinPercent: 80,            // kehadiran bulan ini di bawah nilai ini = perlu perhatian
+  attendanceWaTemplate: "Assalamu'alaikum Ayah/Bunda, semoga sehat selalu 🌿\nAnanda {nama} belum hadir di RTA pada {tanggal}.\nBila ada kendala, mohon kabari ustadzah ya. Jazakumullahu khairan 🤍\nPortal wali: {link}",
 };
 export type Settings = typeof SETTING_DEFAULTS;
 export const WA_PLACEHOLDERS = ['tagihan', 'nama', 'total', 'link'];
+export const ATTENDANCE_WA_PLACEHOLDERS = ['nama', 'tanggal', 'link'];
 const MAX_FEE = 10_000_000;
 
 /** Isi template WA. Placeholder yang tidak dikenal sudah ditolak saat disimpan. */
@@ -32,6 +38,10 @@ class SettingsDto {
   @IsOptional() @IsInt() @Min(0) @Max(MAX_FEE) registrationMinDp?: number;
   @IsOptional() @IsInt() @Min(1, { message: 'Maksimal cicilan minimal 1 (1 = tidak bisa dicicil)' }) @Max(6, { message: 'Maksimal cicilan 6 kali' }) registrationMaxInstallments?: number;
   @IsOptional() @IsString() @MaxLength(500, { message: 'Template WA maksimal 500 karakter' }) waTemplate?: string;
+  @IsOptional() @IsArray() @ArrayMinSize(1, { message: 'Pilih minimal satu hari belajar' }) @ArrayMaxSize(7) @IsInt({ each: true }) @Min(1, { each: true }) @Max(7, { each: true }) attendanceDays?: number[];
+  @IsOptional() @IsInt() @Min(2, { message: 'Ambang alpa berturut-turut minimal 2' }) @Max(10, { message: 'Ambang alpa berturut-turut maksimal 10' }) attendanceAlpaStreak?: number;
+  @IsOptional() @IsInt() @Min(50, { message: 'Ambang kehadiran minimal 50%' }) @Max(100, { message: 'Ambang kehadiran maksimal 100%' }) attendanceMinPercent?: number;
+  @IsOptional() @IsString() @MaxLength(500, { message: 'Template WA absensi maksimal 500 karakter' }) attendanceWaTemplate?: string;
 }
 class BranchBankDto {
   @IsString() @Length(2, 60, { message: 'Nama bank 2–60 karakter' }) bankName: string;
@@ -79,7 +89,7 @@ export class SettingsService {
        FROM branches b WHERE b.is_active AND ($1::int[] IS NULL OR b.id = ANY($1)) ORDER BY b.id`, [user.branchIds]);
     const banks = await this.banks(user.branchIds);
     const { bankName, bankAccount, bankHolder, ...rest } = values;
-    return { values: rest, defaults: SETTING_DEFAULTS, placeholders: WA_PLACEHOLDERS, branches, banks, updatedAt: last?.updatedAt ?? null, updatedBy: last?.updatedBy ?? null };
+    return { values: rest, defaults: SETTING_DEFAULTS, placeholders: WA_PLACEHOLDERS, attendancePlaceholders: ATTENDANCE_WA_PLACEHOLDERS, branches, banks, updatedAt: last?.updatedAt ?? null, updatedBy: last?.updatedBy ?? null };
   }
 
   /** Rekening satu cabang. PJ semua cabang; ustadzah hanya cabangnya (di luar scope = 404). */
@@ -100,8 +110,10 @@ export class SettingsService {
       let v: any = (dto as any)[k];
       if (v === undefined) continue;
       if (typeof v === 'string') v = v.trim();
-      if (k === 'waTemplate') this.checkTemplate(v);
-      if (v !== cur[k]) (next as any)[k] = v;
+      if (k === 'attendanceDays') v = [...new Set(v as number[])].sort((a, b) => a - b);
+      if (k === 'waTemplate') this.checkTemplate(v, WA_PLACEHOLDERS);
+      if (k === 'attendanceWaTemplate') this.checkTemplate(v, ATTENDANCE_WA_PLACEHOLDERS);
+      if (JSON.stringify(v) !== JSON.stringify(cur[k])) (next as any)[k] = v;
     }
     if (!Object.keys(next).length) return { ok: true, changed: 0 };
     await this.db.tx(async (c) => {
@@ -115,10 +127,10 @@ export class SettingsService {
   }
 
   /** Pesan WA wali: wajib memuat {link}, maksimal 5 baris, hanya placeholder yang dikenal. */
-  private checkTemplate(t: string) {
+  private checkTemplate(t: string, allowed: string[]) {
     if (!t.includes('{link}')) throw new BadRequestException('Template WA wajib memuat {link}');
     if (t.split('\n').length > 5) throw new BadRequestException('Template WA maksimal 5 baris');
-    const unknown = [...t.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).filter((k) => !WA_PLACEHOLDERS.includes(k));
+    const unknown = [...t.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).filter((k) => !allowed.includes(k));
     if (unknown.length) throw new BadRequestException(`Placeholder tidak dikenal: ${[...new Set(unknown)].map((k) => `{${k}}`).join(', ')}`);
   }
 

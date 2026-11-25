@@ -5,6 +5,7 @@ import type { Response } from 'express';
 import type { PoolClient } from 'pg';
 import { createHash, randomBytes } from 'crypto';
 import { Db } from '../../db/db.module';
+import { FAMILY_LABEL } from '../families/families.module';
 import type { AuthUser } from '../../common/auth';
 import { CurrentUser, Perm, Public } from '../../common/auth';
 import { AuditService } from '../../common/audit.service';
@@ -57,12 +58,15 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
   }
   onModuleDestroy() { clearInterval(this.timer); }
 
-  /** SPP tanggal 1: santri Aktif (termasuk yang pengajuannya menunggu) yang sudah masuk per tgl 1. Cuti/Indent tidak ditagih. */
+  /**
+   * SPP tanggal 1: santri Aktif (termasuk yang pengajuannya menunggu) yang sudah masuk per tgl 1. Cuti/Indent tidak ditagih.
+   * join_date NULL = santri lama hasil impor (tanggal masuk tidak tercatat): dianggap sudah masuk, tetap ditagih.
+   */
   async generateMonthly(period = monthStart(), client?: PoolClient) { // client: dipakai `bun run test:bill` (pratinjau di-rollback)
     const n = await this.db.exec(
       `INSERT INTO invoices(student_id, family_id, branch_id, type, period, label, amount, note)
        SELECT s.id, s.family_id, s.branch_id, 'SPP', $1::date, $2, s.spp_rate, s.subsidy_label FROM students s
-       WHERE s.status = 'AKTIF' AND s.spp_rate > 0 AND s.join_date <= $1::date
+       WHERE s.status = 'AKTIF' AND s.spp_rate > 0 AND (s.join_date IS NULL OR s.join_date <= $1::date)
        ON CONFLICT (student_id, type, period) WHERE voided_at IS NULL AND type <> 'BARANG' DO NOTHING`, [period, `SPP ${monthLabel(period)}`], client);
     if (n) this.log.log(`${n} tagihan SPP ${monthLabel(period)} dibuat`);
     return { created: n, period };
@@ -136,7 +140,7 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
     const ids = this.ids(user, p.branchId);
     const months = [5, 4, 3, 2, 1, 0].map((k) => addMonths(period, -k));
     const students = await this.db.many(
-      `SELECT s.id, s.full_name AS "fullName", s.status, c.name AS "className", f.father_name AS wali, s.family_id AS "familyId"
+      `SELECT s.id, s.full_name AS "fullName", s.status, c.name AS "className", ${FAMILY_LABEL()} AS wali, s.family_id AS "familyId"
        FROM students s JOIN classes c ON c.id = s.class_id JOIN families f ON f.id = s.family_id
        WHERE ($1::int[] IS NULL OR s.branch_id = ANY($1)) AND s.status <> 'KELUAR' AND ($2::text IS NULL OR s.full_name ILIKE $2 OR f.father_name ILIKE $2)
        ORDER BY s.full_name`, [ids, p.q ? `%${p.q}%` : null]);
@@ -220,7 +224,7 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
     const famIds = [...new Set(open.map((i) => i.family_id))];
     if (!famIds.length) return [];
     const fams = await this.db.many(
-      `SELECT f.id, f.father_name AS "fatherName", f.mother_name AS "motherName", f.wa_phone AS "waPhone",
+      `SELECT f.id, ${FAMILY_LABEL()} AS "fatherName", f.mother_name AS "motherName", f.wa_phone AS "waPhone",
          (SELECT MAX(created_at) FROM wa_dispatch_log w WHERE w.family_id = f.id) AS "lastSent",
          (SELECT COUNT(*) FROM payments p WHERE p.family_id = f.id AND p.state = 'MENUNGGU')::int AS pending
        FROM families f WHERE f.id = ANY($1) AND ($2::text IS NULL OR f.father_name ILIKE $2 OR f.mother_name ILIKE $2) ORDER BY f.father_name`, [famIds, q ? `%${q}%` : null]);
@@ -249,6 +253,8 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
     const inv = await this.familyInvoices(user, familyId);
     if (!inv.length) throw new BadRequestException('Keluarga ini tidak punya tagihan terbuka');
     const f = await this.db.one('SELECT id, wa_phone FROM families WHERE id = $1', [familyId]);
+    // keluarga hasil impor boleh tanpa no. WA: jangan buat/cabut link sebelum nomornya ada
+    if (!f?.wa_phone) throw new BadRequestException('No. WA wali belum diisi. Lengkapi dulu di menu Wali santri, lalu kirim ulang.');
     const cfg = await this.settings.get();
     const raw = randomBytes(24).toString('base64url');
     await this.db.tx(async (c) => {
@@ -308,7 +314,7 @@ export class BillingService implements OnModuleInit, OnModuleDestroy {
     const ids = this.ids(user);
     return this.db.many(
       `SELECT p.id, p.amount, p.paid_at AS "paidAt", p.method, p.source, p.state, p.note, p.cancel_reason AS "cancelReason", p.created_at AS "createdAt",
-              (p.proof_path IS NOT NULL) AS "hasProof", f.id AS "familyId", f.father_name AS "fatherName", r.name AS "recordedBy", v.name AS "verifiedBy",
+              (p.proof_path IS NOT NULL) AS "hasProof", f.id AS "familyId", ${FAMILY_LABEL()} AS "fatherName", r.name AS "recordedBy", v.name AS "verifiedBy",
               (SELECT string_agg(i.label || ' · ' || COALESCE(s.nickname, s.full_name), ', ') FROM payment_allocations a JOIN invoices i ON i.id = a.invoice_id JOIN students s ON s.id = i.student_id WHERE a.payment_id = p.id) AS items
        FROM payments p JOIN families f ON f.id = p.family_id LEFT JOIN users r ON r.id = p.recorded_by LEFT JOIN users v ON v.id = p.verified_by
        WHERE ($1::text IS NULL OR p.state = $1)

@@ -1,5 +1,6 @@
 import { Controller, Get, Injectable, Module, Query } from '@nestjs/common';
 import { Db } from '../../db/db.module';
+import { FAMILY_LABEL } from '../families/families.module';
 import { CurrentUser, Perm } from '../../common/auth';
 import type { AuthUser } from '../../common/auth';
 import { BillingModule, BillingService } from '../billing/billing.module';
@@ -7,10 +8,11 @@ import { HafalanModule, HafalanService } from '../hafalan/hafalan.module';
 import { addDays, monthLabel, monthStart, todayWIB, weekStart } from '../../common/time';
 import { RegistrationModule, RegistrationService } from '../registration/registration.module';
 import { KasModule, KasService } from '../kas/kas.module';
+import { AbsensiModule, AbsensiService } from '../absensi/absensi.module';
 
 @Injectable()
 export class DashboardService {
-  constructor(private db: Db, private billing: BillingService, private hafalan: HafalanService, private reg: RegistrationService, private kas: KasService) {}
+  constructor(private db: Db, private billing: BillingService, private hafalan: HafalanService, private reg: RegistrationService, private kas: KasService, private absensi: AbsensiService) {}
   /** Semua angka dihitung dari data modul. Scope: ustadzah = cabangnya; PJ/Manajer = semua, bisa filter cabang & bulan (YYYY-MM). */
   async summary(user: AuthUser, branchId?: number, month?: string) {
     const ids = user.branchIds ? user.branchIds.filter((b) => !branchId || b === Number(branchId)) : branchId ? [Number(branchId)] : null;
@@ -42,6 +44,7 @@ export class DashboardService {
       keuangan: user.perms.includes('spp.lihat') ? await this.billing.dashboard(ids) : null,
       finance: await this.finance(user, branchId),
       hafalan: { perClass: await this.hafalan.dashboard(ids), top: await this.hafalan.topProgress(ids), belumInputPekanIni: await this.todoHafalan(ids) },
+      absensi: user.perms.includes('absensi.lihat') ? { belumHariIni: await this.absensi.todo(ids) } : null,
     };
   }
   /** "Perlu tindakan": pengajuan (maks. 3 per jenis) & bukti bayar (maks. 3) yang menunggu + jumlahnya; tanpa nominal/kontak, sesuai izin & scope cabang */
@@ -58,7 +61,7 @@ export class DashboardService {
        FROM requests r JOIN students s ON s.id = r.student_id WHERE r.state = 'MENUNGGU' AND ($1::int[] IS NULL OR s.branch_id = ANY($1))`, [ids]) : null;
     const payScope = `p.state = 'MENUNGGU' AND ($1::int[] IS NULL OR EXISTS (SELECT 1 FROM payment_allocations a JOIN invoices i ON i.id = a.invoice_id WHERE a.payment_id = p.id AND i.branch_id = ANY($1)))`;
     const payments = canPay ? await this.db.many(
-      `SELECT p.id, f.father_name AS "fatherName",
+      `SELECT p.id, ${FAMILY_LABEL()} AS "fatherName",
               (SELECT string_agg(DISTINCT i.label, ', ') FROM payment_allocations a JOIN invoices i ON i.id = a.invoice_id WHERE a.payment_id = p.id) AS items
        FROM payments p JOIN families f ON f.id = p.family_id WHERE ${payScope} ORDER BY p.created_at LIMIT 3`, [ids]) : [];
     const pc = canPay ? await this.db.one(`SELECT COUNT(*)::int AS n FROM payments p WHERE ${payScope}`, [ids]) : null;
@@ -124,5 +127,5 @@ export class DashboardController {
   @Get() @Perm('dashboard.lihat') get(@CurrentUser() u: AuthUser, @Query('branchId') b?: number, @Query('month') m?: string) { return this.s.summary(u, b, m); }
 }
 
-@Module({ imports: [BillingModule, HafalanModule, RegistrationModule, KasModule], controllers: [DashboardController], providers: [DashboardService] })
+@Module({ imports: [BillingModule, HafalanModule, RegistrationModule, KasModule, AbsensiModule], controllers: [DashboardController], providers: [DashboardService] })
 export class DashboardModule {}

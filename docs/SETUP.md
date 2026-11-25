@@ -198,7 +198,7 @@ Akun wajib ganti password saat login pertama; akun lain dibuat PJ lewat menu Aku
 | `/api/...` menjawab 404 JSON di cPanel, padahal API jalan | `BASE_PATH=/api` belum diisi (Passenger tidak membuang awalan `/api`). Isi, lalu Restart. Sebaliknya, di Docker/VPS dengan proxy yang membuang `/api`, `BASE_PATH` harus kosong |
 | Banyak pengguna mendapat 429 "terlalu banyak permintaan" bersamaan; IP di *Perangkat aktif* selalu `127.0.0.1` / IP server | API di belakang proxy tapi `TRUST_PROXY` belum diisi. Isi jumlah proxy di depan API (biasanya `1`), lalu restart |
 | `Akun dikunci sementara` | 5x salah password. PJ/Admin: menu Akun → *Buka kunci* |
-| Impor gagal semua | Lihat daftar baris bermasalah; tanggal `YYYY-MM-DD`, no. WA diawali 08/+62 |
+| Impor gagal semua | Lihat daftar baris bermasalah; kolom wajib (ID Santri `RTA-<kode>-NNN`, nama, JK, cabang, jenjang, status, keterangan) terisi, tanggal `YYYY-MM-DD`/`DD/MM/YYYY`, no. WA (bila diisi) diawali 08/+62 |
 | Link tagihan wali "tidak berlaku" | Link berlaku 30 hari dan dicabut saat link baru dibuat untuk keluarga yang sama; kirim ulang dari menu Bayar |
 | Tagihan SPP bulan ini belum muncul | API belum berjalan sejak tanggal 1, atau `DISABLE_SCHEDULER=true`. PJ bisa memicu manual: `POST /spp/generate` |
 | Unggah bukti ditolak | Format harus JPG/PNG/WebP/PDF ≤ 5 MB; file diperiksa dari isinya, bukan ekstensinya |

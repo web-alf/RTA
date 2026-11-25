@@ -210,9 +210,7 @@ export default function Santri() {
                 <div className="text-xs text-n-600 truncate">
                   {s.nis} · {s.branchName} {LEVEL[s.level] ?? s.className}
                 </div>
-                <div className="text-xs text-n-600 truncate">
-                  Wali: {s.fatherName} & {s.motherName}
-                </div>
+                <div className="text-xs text-n-600 truncate">Wali: {[s.fatherName, s.motherName].filter(Boolean).join(' & ') || '—'}</div>
               </div>
               <Badge status={s.status} />
             </Link>
@@ -260,9 +258,11 @@ export default function Santri() {
             Unduh template, isi di Excel/Google Sheets, lalu unggah file <b>.xlsx</b> atau <b>CSV</b> (sheet pertama yang dibaca). Seluruh file divalidasi dulu; jika ada baris bermasalah, tidak ada
             data yang disimpan.
           </p>
-          <p className="text-n-600">
-            Status: <b>INDENT</b>, <b>AKTIF</b>, <b>CUTI</b>, atau <b>KELUAR</b>.
-          </p>
+          <div className="rounded-2xl bg-n-50 p-3.5 space-y-1.5 text-n-700">
+            <p>
+              <b>Wajib diisi:</b> ID Santri, Nama Lengkap, Jenis Kelamin, Cabang, Jenjang, Status, Keterangan Pendaftaran.
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
             <button className="btn-secondary" onClick={() => download('/import/students/template?format=xlsx', 'template-santri.xlsx')}>
               Unduh template (Excel)

@@ -9,9 +9,9 @@ export const PASTEL = [
 const hash = (s: string) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 export const initials = (name = '') => name.replace(/^(Ustadzah|Kel\.)\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
-export function Avatar({ name, size = 40, square = false }: { name: string; size?: number; square?: boolean }) {
-  const p = PASTEL[hash(name) % 4];
-  return <div aria-hidden className={`${p.bg} ${p.fg} ${square ? 'rounded-[30%]' : 'rounded-full'} flex items-center justify-center font-display font-extrabold shrink-0`} style={{ width: size, height: size, fontSize: size * 0.33 }}>{initials(name)}</div>;
+export function Avatar({ name, size = 40, square = false }: { name?: string | null; size?: number; square?: boolean }) {
+  const p = PASTEL[hash(name ?? '') % 4];
+  return <div aria-hidden className={`${p.bg} ${p.fg} ${square ? 'rounded-[30%]' : 'rounded-full'} flex items-center justify-center font-display font-extrabold shrink-0`} style={{ width: size, height: size, fontSize: size * 0.33 }}>{initials(name ?? '')}</div>;
 }
 export function IconTile({ icon: Icon, tone = 0, size = 40 }: { icon: any; tone?: number; size?: number }) {
   const p = PASTEL[tone % 4];

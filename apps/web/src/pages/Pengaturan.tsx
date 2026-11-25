@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BadgePercent, Building2, CalendarRange, Landmark, MessageCircle, Plus } from 'lucide-react';
+import { BadgePercent, Building2, CalendarCheck, CalendarRange, Landmark, MessageCircle, Plus } from 'lucide-react';
 import { can, get, patch, post, rupiah, tgl } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useToast } from '../components/Toast';
 import { Alert, Card, Dialog, Field, IconTile, PageHeader, Segmented, Toggle } from '../components/ui';
 
 const BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-const KEYS = ['reregistrationFee', 'academicYearStartMonth', 'registrationMinDp', 'registrationMaxInstallments', 'linkDays', 'waTemplate'] as const;
+const KEYS = ['reregistrationFee', 'academicYearStartMonth', 'registrationMinDp', 'registrationMaxInstallments', 'linkDays', 'waTemplate', 'attendanceDays', 'attendanceAlpaStreak', 'attendanceMinPercent', 'attendanceWaTemplate'] as const;
 const SAMPLE = { tagihan: 'SPP November', nama: 'Aisyah & Hafsah', total: 'Rp300.000', link: 'https://…/bayar/contoh' };
 const render = (t: string) => t.replace(/\{(\w+)\}/g, (m, k) => (SAMPLE as any)[k] ?? m);
+const SAMPLE_ABS = { nama: 'Aisyah', tanggal: '20, 23 & 24 Nov', link: 'https://…/perkembangan' };
+const renderAbs = (t: string) => t.replace(/\{(\w+)\}/g, (m, k) => (SAMPLE_ABS as any)[k] ?? m);
+const HARI = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Ahd'];
 
 export default function Pengaturan() {
   const { user } = useAuth();
@@ -38,7 +41,7 @@ export default function Pengaturan() {
   });
   if (!q.data || !form) return <p className="text-sm text-n-600">Memuat…</p>;
   const d = q.data;
-  const dirty = KEYS.some((k) => form[k] !== d.values[k]);
+  const dirty = KEYS.some((k) => JSON.stringify(form[k]) !== JSON.stringify(d.values[k]));
   const set = (k: string, v: any) => setForm({ ...form, [k]: v });
   const num = (k: string) => ({
     type: 'number',
@@ -242,6 +245,65 @@ export default function Pengaturan() {
           <div>
             <div className="label">Pratinjau (contoh data)</div>
             <div className="rounded-2xl bg-mint-bg p-4 text-sm whitespace-pre-wrap break-words">{render(form.waTemplate)}</div>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title={
+          <span className="flex items-center gap-3">
+            <IconTile icon={CalendarCheck} tone={0} />
+            Absensi
+          </span>
+        }
+      >
+        <div className="grid lg:grid-cols-2 gap-5">
+          <div className="space-y-4">
+            <div>
+              <span className="label">Hari belajar</span>
+              <div role="group" aria-label="Hari belajar" className="flex flex-wrap gap-2">
+                {HARI.map((h, i) => {
+                  const on = (form.attendanceDays as number[]).includes(i + 1);
+                  return (
+                    <button key={h} type="button" aria-pressed={on} disabled={!edit} className={`${on ? 'chip-on' : 'chip-off'} !h-11 min-w-[52px] justify-center disabled:opacity-70`}
+                      onClick={() => set('attendanceDays', on ? form.attendanceDays.filter((x: number) => x !== i + 1) : [...form.attendanceDays, i + 1].sort((a: number, b: number) => a - b))}>
+                      {h}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-xs text-n-600">Hari di luar pilihan ini dan libur di menu Agenda otomatis dikunci di absensi.</p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <Field label="Alpa berturut-turut" hint="Jumlah pertemuan alpa berturut-turut yang memicu tanda perlu perhatian.">
+                <select {...txt('attendanceAlpaStreak')} onChange={(e) => set('attendanceAlpaStreak', Number(e.target.value))}>
+                  {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n} kali</option>)}
+                </select>
+              </Field>
+              <Field label="Batas kehadiran (%)" hint="Kehadiran bulanan di bawah nilai ini = perlu perhatian.">
+                <input {...num('attendanceMinPercent')} min={50} max={100} />
+              </Field>
+            </div>
+            <Field label="Template pesan WA ke wali" hint={`${String(form.attendanceWaTemplate).split('\n').length}/5 baris · wajib memuat {link} · hangat, tanpa nada menekan.`}>
+              <textarea {...txt('attendanceWaTemplate')} rows={4} className="input !h-auto py-3 font-mono text-[13px]" />
+            </Field>
+            {edit && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-n-600">
+                Sisipkan:
+                {(d.attendancePlaceholders ?? []).map((p: string) => (
+                  <button key={p} type="button" className="pill h-8 bg-n-50 text-brand-800 font-mono" onClick={() => set('attendanceWaTemplate', `${form.attendanceWaTemplate}{${p}}`)}>{`{${p}}`}</button>
+                ))}
+                {form.attendanceWaTemplate !== d.defaults.attendanceWaTemplate && (
+                  <button type="button" className="btn-text !h-8" onClick={() => set('attendanceWaTemplate', d.defaults.attendanceWaTemplate)}>
+                    Kembalikan bawaan
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="label">Pratinjau (contoh data)</div>
+            <div className="rounded-2xl bg-mint-bg p-4 text-sm whitespace-pre-wrap break-words">{renderAbs(form.attendanceWaTemplate)}</div>
           </div>
         </div>
       </Card>

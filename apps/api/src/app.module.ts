@@ -25,13 +25,14 @@ import { SubsidiesModule } from './modules/subsidies/subsidies.module';
 import { AgendaModule } from './modules/agenda/agenda.module';
 import { RegistrationModule } from './modules/registration/registration.module';
 import { KasModule } from './modules/kas/kas.module';
+import { AbsensiModule } from './modules/absensi/absensi.module';
 
 @Module({
   imports: [
     DbModule, JwtModule.register({}),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]), // batas umum per IP
     AuthModule, RolesModule, UsersModule, BranchesModule, FamiliesModule, StudentsModule, RequestsModule, DashboardModule, AuditModule, ExportModule, ImportModule,
-    HafalanModule, BillingModule, LpsModule, PortalModule, SettingsModule, SubsidiesModule, AgendaModule, RegistrationModule, KasModule,
+    HafalanModule, BillingModule, LpsModule, PortalModule, SettingsModule, SubsidiesModule, AgendaModule, RegistrationModule, KasModule, AbsensiModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

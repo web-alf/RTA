@@ -1,13 +1,14 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, CalendarDays, ClipboardCheck, Contact, CreditCard, FileText, HelpCircle, Home, KeyRound, LogOut, MoreHorizontal, ReceiptText, ScrollText, Settings, ShieldCheck, TrendingUp, User, UserCog, Users, Wallet, UserPlus, Banknote } from 'lucide-react';
+import { BookOpen, CalendarDays, ClipboardCheck, Contact, CreditCard, FileText, HelpCircle, Home, KeyRound, LogOut, MoreHorizontal, ReceiptText, ScrollText, Settings, ShieldCheck, TrendingUp, User, UserCog, Users, Wallet, UserPlus, Banknote, CalendarCheck } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { can, get } from '../lib/api';
 import { Avatar } from './ui';
 
 export const MENU = [
   { to: '/', label: 'Beranda', perm: 'dashboard.lihat', Icon: Home },
+  { to: '/absensi', label: 'Absensi', perm: 'absensi.lihat', Icon: CalendarCheck },
   { to: '/pendaftaran', label: 'Pendaftaran', perm: 'pendaftaran.lihat', Icon: UserPlus },
   { to: '/anak', label: 'Tagihan', perm: 'portal.lihat', Icon: ReceiptText },
   { to: '/perkembangan', label: 'Anak Saya', perm: 'portal.lihat', Icon: TrendingUp },
@@ -26,7 +27,7 @@ export const MENU = [
   { to: '/audit', label: 'Audit', perm: 'audit.lihat', Icon: ScrollText },
   { to: '/pengaturan', label: 'Pengaturan', perm: 'pengaturan.lihat', Icon: Settings },
 ];
-const TAB_PREF = ['/', '/anak', '/perkembangan', '/santri', '/kelas', '/bayar', '/spp', '/lps', '/pengajuan', '/akun'];
+const TAB_PREF = ['/', '/absensi', '/anak', '/perkembangan', '/santri', '/kelas', '/bayar', '/spp', '/lps', '/pengajuan', '/akun'];
 const ROLE_LABEL: Record<string, string> = { PJ: 'PJ RTA', USTADZAH: 'Ustadzah', MANAJER: 'Manajer', WALI: 'Wali Santri' };
 
 export default function Layout() {

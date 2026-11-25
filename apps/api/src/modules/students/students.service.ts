@@ -7,6 +7,7 @@ import { AuditService } from '../../common/audit.service';
 import { FAMILY_SENSITIVE, STUDENT_SENSITIVE, canSeeSensitive, mask } from '../../common/mask';
 import { today } from '../../common/sql';
 import { FamiliesService } from '../families/families.module';
+import type { FamilyInput } from '../families/families.module';
 import { SubsidiesService } from '../subsidies/subsidies.module';
 import { RequestDto, StatusDto, StudentDto, UpdateStudentDto } from './students.dto';
 
@@ -15,8 +16,19 @@ const S_COLS = `s.id, s.nis, s.full_name AS "fullName", s.nickname, s.gender, s.
   s.family_id AS "familyId", s.branch_id AS "branchId", s.class_id AS "classId", s.join_date AS "joinDate", s.status, s.health_notes AS "healthNotes",
   s.spp_rate AS "sppRate", s.subsidy_label AS "subsidyLabel", s.subsidy_id AS "subsidyId", s.subsidy_since AS "subsidySince", s.registration_note AS "registrationNote", s.archived_at AS "archivedAt", s.created_at AS "createdAt"`;
 // Kolom daftar = kolom spreadsheet data santri (ID Santri … Pekerjaan Ibu); field sensitif dimasking di list()
-/** Santri baru. Status CUTI/KELUAR hanya lewat impor data lama (form tambah santri tetap INDENT/AKTIF, divalidasi StudentDto). */
-export type NewStudent = Omit<StudentDto, 'status'> & { status: StudentDto['status'] | 'CUTI' | 'KELUAR' };
+/**
+ * Santri baru. Hanya lewat impor data lama: status CUTI/KELUAR, tempat/tanggal lahir kosong, keluarga tanpa nama/no. WA/alamat
+ * (form tambah santri tetap divalidasi StudentDto: INDENT/AKTIF dan kolom-kolom itu wajib).
+ */
+export type NewStudent = Omit<StudentDto, 'status' | 'birthPlace' | 'birthDate' | 'joinDate' | 'family'> & {
+  status: StudentDto['status'] | 'CUTI' | 'KELUAR';
+  birthPlace?: string;
+  birthDate?: string;
+  joinDate?: string; // kosong = santri lama (impor): tanpa tagihan pendaftaran, tetap ikut SPP & absensi
+  family?: FamilyInput;
+};
+/** Format ID santri resmi: RTA-<kode cabang>-<urut, min. 3 digit>. */
+export const NIS_RULE = /^RTA-([A-Z]+)-(\d{3,})$/;
 const LIST_COLS = `s.id, s.nis, s.full_name AS "fullName", s.nickname, s.gender, s.birth_place AS "birthPlace", s.birth_date AS "birthDate",
   s.branch_id AS "branchId", b.name AS "branchName", s.class_id AS "classId", c.level, c.name AS "className", s.join_date AS "joinDate", s.status,
   s.registration_note AS "registrationNote", s.subsidy_label AS "subsidyLabel", s.family_id AS "familyId", f.father_name AS "fatherName", f.mother_name AS "motherName",
@@ -41,6 +53,19 @@ export class StudentsService {
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [prefix]);
     const r = await this.db.one(`SELECT COALESCE(MAX(substring(nis FROM '^RTA-[A-Z]+-([0-9]+)$')::int), 0) AS n FROM students WHERE nis LIKE $1`, [`${prefix}%`], client);
     return prefix + String(r!.n + 1).padStart(3, '0');
+  }
+
+  /**
+   * ID santri dari file impor data lama. Kunci advisory yang sama dengan nextNis() agar tidak bentrok dengan santri baru
+   * yang dibuat bersamaan; ID otomatis berikutnya melanjutkan dari nomor terbesar (termasuk ID hasil impor).
+   */
+  private async useNis(nis: string, client: any) {
+    const m = nis.match(NIS_RULE);
+    if (!m) throw new BadRequestException('ID Santri harus berformat RTA-<kode cabang>-<nomor>, mis. RTA-GNK-001');
+    if (!(await this.db.one('SELECT 1 FROM branches WHERE code = $1', [m[1]], client))) throw new BadRequestException(`Kode cabang "${m[1]}" pada ID Santri tidak dikenal`);
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`RTA-${m[1]}-`]);
+    if (await this.db.one('SELECT 1 FROM students WHERE nis = $1', [nis], client)) throw new BadRequestException(`ID Santri ${nis} sudah dipakai santri lain`);
+    return nis;
   }
 
   async list(user: AuthUser, p: { q?: string; branchId?: number; classId?: number; status?: string; page?: number; size?: number }) {
@@ -115,7 +140,7 @@ export class StudentsService {
       history,
       requests,
       siblings,
-      age: Math.floor((Date.now() - new Date(s.birthDate).getTime()) / (365.25 * 86400_000)),
+      age: s.birthDate ? Math.floor((Date.now() - new Date(s.birthDate).getTime()) / (365.25 * 86400_000)) : null, // data impor boleh tanpa tanggal lahir
     };
   }
 
@@ -124,8 +149,12 @@ export class StudentsService {
     if (!c) throw new BadRequestException('Kelas tidak tersedia di cabang tersebut');
   }
 
-  /** `client`: jalankan di dalam transaksi pemanggil (impor: semua baris tersimpan atau tidak sama sekali). */
-  async create(user: AuthUser, dto: NewStudent, client?: PoolClient) {
+  /**
+   * `client`: jalankan di dalam transaksi pemanggil (impor: semua baris tersimpan atau tidak sama sekali).
+   * `opts.nis`: ID santri dari file impor data lama (format NIS_RULE, kode cabang terdaftar, belum dipakai); tanpa itu dibuat nextNis().
+   * Sengaja parameter terpisah, bukan field DTO, agar POST /students tidak bisa menentukan ID sendiri.
+   */
+  async create(user: AuthUser, dto: NewStudent, client?: PoolClient, opts: { nis?: string } = {}) {
     assertBranch(user, dto.branchId);
     if (!dto.familyId && !dto.family) throw new BadRequestException('Data keluarga wajib diisi');
     if (dto.subsidyId && !user.perms.includes('spp.input')) throw new BadRequestException('Kategori subsidi hanya diatur PJ RTA');
@@ -133,11 +162,15 @@ export class StudentsService {
       await this.validClass(dto.branchId, dto.classId, c);
       const b = await this.db.one('SELECT spp_standard, registration_fee FROM branches WHERE id = $1', [dto.branchId], c);
       if (!b) throw new BadRequestException('Cabang tidak ditemukan');
-      if (await this.db.one('SELECT 1 FROM students WHERE full_name ILIKE $1 AND birth_date = $2', [dto.fullName, dto.birthDate], c))
-        throw new BadRequestException('Santri dengan nama dan tanggal lahir yang sama sudah terdaftar');
+      // santri ganda: nama + tanggal lahir; tanpa tanggal lahir (impor data lama): nama + cabang
+      if (dto.birthDate) {
+        if (await this.db.one('SELECT 1 FROM students WHERE full_name ILIKE $1 AND birth_date = $2', [dto.fullName, dto.birthDate], c))
+          throw new BadRequestException('Santri dengan nama dan tanggal lahir yang sama sudah terdaftar');
+      } else if (await this.db.one('SELECT 1 FROM students WHERE full_name ILIKE $1 AND branch_id = $2', [dto.fullName, dto.branchId], c))
+        throw new BadRequestException('Santri dengan nama yang sama sudah terdaftar di cabang ini (tanggal lahir kosong, jadi dicocokkan dengan nama dan cabang)');
       const sub = dto.subsidyId ? await this.subsidies.resolve(dto.subsidyId, dto.branchId, { familyId: dto.familyId }, c) : null;
       const familyId = dto.familyId ?? (await this.fam.create(user, dto.family!, c)).id;
-      const nis = await this.nextNis(dto.branchId, c);
+      const nis = opts.nis ? await this.useNis(opts.nis, c) : await this.nextNis(dto.branchId, c);
       const row = await this.db.one(
         `INSERT INTO students(nis, full_name, nickname, gender, birth_place, birth_date, school, family_id, branch_id, class_id, join_date, status, health_notes, spp_rate, registration_note, subsidy_label, subsidy_id, subsidy_since)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id, nis`,
@@ -146,13 +179,13 @@ export class StudentsService {
           dto.fullName,
           dto.nickname ?? null,
           dto.gender,
-          dto.birthPlace,
-          dto.birthDate,
+          dto.birthPlace || null,
+          dto.birthDate || null,
           dto.school ?? null,
           familyId,
           dto.branchId,
           dto.classId,
-          dto.joinDate,
+          dto.joinDate || null,
           dto.status,
           dto.healthNotes ?? null,
           sub?.amount ?? b.spp_standard,
@@ -163,20 +196,24 @@ export class StudentsService {
         ],
         c,
       );
-      await c.query('INSERT INTO student_placements(student_id, branch_id, class_id, effective_date, note) VALUES ($1,$2,$3,$4,$5)', [row!.id, dto.branchId, dto.classId, dto.joinDate, 'Pendaftaran']);
+      // santri lama tanpa tanggal bergabung (impor): riwayat penempatan & status bertanggal hari impor
+      const since = dto.joinDate || today();
+      const note = dto.joinDate ? 'Pendaftaran' : 'Impor data lama (tanggal bergabung tidak tercatat)';
+      await c.query('INSERT INTO student_placements(student_id, branch_id, class_id, effective_date, note) VALUES ($1,$2,$3,$4,$5)', [row!.id, dto.branchId, dto.classId, since, note]);
       await c.query('INSERT INTO status_history(student_id, from_status, to_status, effective_date, actor_id, note) VALUES ($1,NULL,$2,$3,$4,$5)', [
         row!.id,
         dto.status,
-        dto.joinDate,
+        since,
         user.id,
-        'Pendaftaran',
+        note,
       ]);
-      // Tagihan pendaftaran dibuat otomatis (prd.md 6.1)
-      await c.query(
-        `INSERT INTO invoices(student_id, family_id, branch_id, type, period, label, amount) VALUES ($1,$2,$3,'PENDAFTARAN',$4,'Pendaftaran',$5)
-        ON CONFLICT (student_id, type, period) WHERE voided_at IS NULL AND type <> 'BARANG' DO NOTHING`,
-        [row!.id, familyId, dto.branchId, dto.joinDate, b.registration_fee],
-      );
+      // Tagihan pendaftaran dibuat otomatis (prd.md 6.1); santri lama tanpa tanggal bergabung tidak ditagih pendaftaran
+      if (dto.joinDate)
+        await c.query(
+          `INSERT INTO invoices(student_id, family_id, branch_id, type, period, label, amount) VALUES ($1,$2,$3,'PENDAFTARAN',$4,'Pendaftaran',$5)
+          ON CONFLICT (student_id, type, period) WHERE voided_at IS NULL AND type <> 'BARANG' DO NOTHING`,
+          [row!.id, familyId, dto.branchId, dto.joinDate, b.registration_fee],
+        );
       await this.audit.log(
         user.id,
         'create',

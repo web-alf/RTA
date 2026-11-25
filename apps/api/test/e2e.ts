@@ -58,6 +58,47 @@ if (r.s === 409) { ok(true, 'posisi turun → minta konfirmasi'); r = await us('
 ok(r.s === 201 && r.j.total === 148 && r.j.percent === 26.2, `rumus PRD: At-Takwir 20 → ${r.j.total} ayat = ${r.j.percent}%`);
 r = await mn('/hafalan/records', { method: 'POST', body: JSON.stringify({ studentId: target.id, surahId: takwir.id, ayat: 21 }) }); ok(r.s === 403, 'manajer tidak bisa input hafalan');
 
+console.log('Absensi');
+r = await us('/absensi/classes'); ok(r.s === 200 && r.j.length > 0 && r.j.every((c: any) => c.branchName === 'Supriyadi'), `ustadzah hanya melihat kelas Supriyadi (${r.j.length} kelas)`);
+const acls = r.j.find((c: any) => c.level === 'JUZ30');
+const pjCls = (await pj('/absensi/classes')).j; ok(new Set(pjCls.map((c: any) => c.branchName)).size === 4, 'PJ melihat kelas semua cabang');
+const lainCls = pjCls.find((c: any) => c.branchName !== 'Supriyadi');
+r = await us(`/absensi/day?classId=${lainCls.id}`); ok(r.s === 404, 'absensi kelas cabang lain ditolak (404)');
+const ymdWIB = (k: number) => new Date(Date.now() + 7 * 3600_000 - k * 86400_000).toISOString().slice(0, 10);
+let aday: any = null;
+for (let k = 0; k < 21 && !aday; k++) { const x = (await us(`/absensi/day?classId=${acls.id}&date=${ymdWIB(k)}`)).j; if (x.kind === 'BELAJAR') aday = x; }
+ok(!!aday && aday.editable, `hari belajar terakhir ditemukan: ${aday?.date}`);
+const aAct = aday.rows.filter((x: any) => x.status === 'AKTIF');
+const aEntries = aAct.map((x: any, i: number) => ({ studentId: x.id, status: i === 0 ? 'A' : i === 1 ? 'I' : 'H', ...(i === 1 ? { note: 'Acara keluarga' } : {}) }));
+r = await us(`/absensi/day?classId=${lainCls.id}&date=${aday.date}`); ok(r.s === 404, 'ustadzah tidak bisa membuka hari absensi cabang lain');
+r = await us('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: lainCls.id, date: aday.date, entries: aEntries }) }); ok(r.s === 404, 'ustadzah tidak bisa menyimpan absensi cabang lain (404)');
+r = await us('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: aday.date, entries: aEntries }) });
+ok(r.s === 200 && r.j.changed === aEntries.length && r.j.summary.A === 1 && r.j.summary.I === 1, `ustadzah menyimpan absensi ${aEntries.length} santri`);
+r = await us('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: aday.date, entries: aEntries }) }); ok(r.s === 200 && r.j.changed === 0, 'simpan ulang tanpa perubahan tidak menulis apa pun');
+r = await us('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: aday.date, entries: [{ studentId: aAct[0].id, status: 'X' }] }) }); ok(r.s === 400, 'status selain H/I/S/A ditolak');
+r = await us('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: ymdWIB(-3), entries: [{ studentId: aAct[0].id, status: 'H' }] }) }); ok(r.s === 400, 'tanggal yang belum lewat ditolak');
+let sat = ymdWIB(1); for (let k = 1; new Date(sat + 'T00:00:00Z').getUTCDay() !== 6; k++) sat = ymdWIB(k);
+r = await us('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: sat, entries: [{ studentId: aAct[0].id, status: 'H' }] }) }); ok(r.s === 400, 'hari Sabtu (libur) ditolak: ' + r.j.message);
+const aCuti = aday.rows.find((x: any) => x.status === 'CUTI');
+if (aCuti) { r = await us('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: aday.date, entries: [{ studentId: aCuti.id, status: 'H' }] }) }); ok(r.s === 400, 'santri cuti tidak bisa diabsen'); }
+r = await mn('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: aday.date, entries: aEntries }) }); ok(r.s === 403, 'manajer tidak bisa mengisi absensi');
+r = await mn(`/absensi/day?classId=${acls.id}&date=${aday.date}`); ok(r.s === 200 && r.j.rows.find((x: any) => x.id === aAct[1].id).note === 'Disembunyikan', 'keterangan izin dimasking untuk manajer');
+r = await us(`/absensi/recap?classId=${acls.id}&month=${aday.date.slice(0, 7)}`);
+const aRow = r.j.rows.find((x: any) => x.id === aAct[0].id); const dIdx = Number(aday.date.slice(8)) - 1;
+ok(r.s === 200 && aRow.cells[dIdx] === 'A' && aRow.counts.A >= 1 && r.j.days.length >= 28, `rekap bulanan: ${r.j.label}, ${r.j.meetings} pertemuan, alpa tercatat`);
+ok(r.j.days.every((d: any) => d.kind !== 'BELAJAR' || ![6, 0].includes(new Date(d.date + 'T00:00:00Z').getUTCDay())), 'Sabtu & Ahad tidak dihitung sebagai hari belajar');
+r = await us(`/absensi/students/${aAct[0].id}?month=${aday.date.slice(0, 7)}`);
+ok(r.s === 200 && !!r.j.wa && r.j.wa.waUrl.startsWith('https://wa.me/62') && r.j.wa.message.includes('/perkembangan') && !/Yatim|subsidi/i.test(r.j.wa.message), 'pesan WA wali dibuat (tanpa kategori subsidi)');
+r = await mn(`/absensi/students/${aAct[0].id}?month=${aday.date.slice(0, 7)}`); ok(r.s === 200 && r.j.wa === null, 'manajer tidak mendapat link WA (no. WA sensitif)');
+r = await us(`/absensi/students/${aAct[0].id}/wa`, { method: 'POST' }); ok(r.s === 201, 'kabari wali tercatat di audit');
+r = await us(`/absensi/export.xlsx?classId=${acls.id}&month=${aday.date.slice(0, 7)}`); ok(r.s === 200, 'ekspor Excel absensi');
+r = await mn(`/absensi/export.pdf?classId=${acls.id}&month=${aday.date.slice(0, 7)}`); ok(r.s === 200, 'manajer bisa ekspor PDF absensi');
+r = await pj('/absensi/day', { method: 'PUT', body: JSON.stringify({ classId: acls.id, date: aday.date, entries: [{ studentId: aAct[0].id, status: 'S', note: 'Demam' }] }) }); ok(r.s === 200 && r.j.changed === 1, 'PJ bisa mengubah absensi cabang mana pun');
+r = await pj('/audit?entity=class'); ok(r.s === 200, 'perubahan absensi tercatat di audit log');
+r = await pj('/settings', { method: 'PATCH', body: JSON.stringify({ attendanceDays: [] }) }); ok(r.s === 400, 'hari belajar kosong ditolak');
+r = await pj('/settings', { method: 'PATCH', body: JSON.stringify({ attendanceWaTemplate: 'Ananda {nama} alpa {tanggal}' }) }); ok(r.s === 400, 'template WA absensi tanpa {link} ditolak');
+r = await us('/dashboard'); ok(r.s === 200 && Array.isArray(r.j.absensi?.belumHariIni), 'Beranda memuat pengingat absensi');
+
 console.log('SPP & Bayar');
 r = await pj('/spp/summary'); ok(r.s === 200 && r.j.total > 0, `rekap SPP ${r.j.label}: ${JSON.stringify(r.j.counts)}`);
 r = await us('/spp/students'); ok(r.s === 200 && r.j.rows.length > 0 && r.j.rows[0].hist.length === 6, `rekap per santri (scope ustadzah: ${r.j.rows.length}), riwayat 6 bulan`);
@@ -183,15 +224,15 @@ r = await pj(`/students/${nid}`); ok(r.j.sppRate === 105000 && r.j.subsidyId ===
 r = await pj(`/students/${nid}`, { method: 'PATCH', body: JSON.stringify({ registrationNote: 'Pindahan dari TPQ lain' }) }); ok(r.s === 200 && (await pj(`/students/${nid}`)).j.registrationNote === 'Pindahan dari TPQ lain', 'keterangan pendaftaran bisa diubah');
 r = await pj('/import/students/template'); ok(r.s === 200 && String(r.j).startsWith('ID Santri,Nama Lengkap,Jenis Kelamin'), 'template impor = kolom spreadsheet');
 fd = new FormData(); fd.append('file', new Blob(['ID Santri,Nama Lengkap,Jenis Kelamin,Tempat Lahir,Tanggal Lahir,Cabang,Jenjang,Tanggal Bergabung,Status,Keterangan Pendaftaran,Kategori Subsidi,Nama Ayah,Nama Ibu,No WA Wali,Alamat,Pekerjaan Ayah,Pekerjaan Ibu\n' +
-  ',Uji Impor,Perempuan,Semarang,04/03/2017,Ngaliyan,Juz 30,01/07/2026,Indent,Daftar lewat WhatsApp,,Ayah Impor,Ibu Impor,081299990003,"Jl. Impor 1, Semarang",Guru,Perawat\n'], { type: 'text/csv' }), 't.csv');
+  'RTA-NGL-901,Uji Impor,Perempuan,Semarang,04/03/2017,Ngaliyan,Juz 30,01/07/2026,Indent,Daftar lewat WhatsApp,,Ayah Impor,Ibu Impor,081299990003,"Jl. Impor 1, Semarang",Guru,Perawat\n'], { type: 'text/csv' }), 't.csv');
 r = await pj('/import/students?dryRun=true', { method: 'POST', body: fd }); ok(r.s === 201 && r.j.ok === true, 'impor (cek) dengan header spreadsheet & tanggal DD/MM/YYYY: ' + JSON.stringify(r.j.errors ?? []));
 r = await pj('/import/students/template?format=xlsx'); ok(r.s === 200 && String(r.j).startsWith('PK'), 'template impor tersedia dalam format Excel (.xlsx)');
 { // file xlsx dari Excel: tanggal sebagai sel tanggal, no. WA tersimpan sebagai angka (0 di depan hilang)
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Data');
   ws.addRow(['ID Santri', 'Nama Lengkap', 'Jenis Kelamin', 'Tempat Lahir', 'Tanggal Lahir', 'Cabang', 'Jenjang', 'Tanggal Bergabung', 'Status', 'Keterangan Pendaftaran', 'Kategori Subsidi', 'Nama Ayah', 'Nama Ibu', 'No WA Wali', 'Alamat', 'Pekerjaan Ayah', 'Pekerjaan Ibu']);
-  ws.addRow([null, 'Uji Impor Excel', 'Laki-laki', 'Semarang', new Date(Date.UTC(2017, 2, 4)), 'Ngaliyan', 'Juz 30', new Date(Date.UTC(2026, 6, 1)), 'Indent', null, null, 'Ayah Excel', 'Ibu Excel', 81299990004, 'Jl. Excel 1, Semarang', 'Guru', 'Perawat']);
+  ws.addRow(['RTA-NGL-902', 'Uji Impor Excel', 'Laki-laki', 'Semarang', new Date(Date.UTC(2017, 2, 4)), 'Ngaliyan', 'Juz 30', new Date(Date.UTC(2026, 6, 1)), 'Indent', 'Data lama', null, 'Ayah Excel', 'Ibu Excel', 81299990004, 'Jl. Excel 1, Semarang', 'Guru', 'Perawat']);
   ws.addRow([]); // baris kosong dilewati
-  ws.addRow([null, 'Uji Impor Excel 2', 'P', 'Semarang', '2017-05-06', 'Ngaliyan', 'JUZ30', '01/07/2026', 'AKTIF', null, null, 'Ayah Excel', 'Ibu Excel', '081299990005', 'Jl. Excel 2, Semarang']);
+  ws.addRow(['RTA-NGL-903', 'Uji Impor Excel 2', 'P', 'Semarang', '2017-05-06', 'Ngaliyan', 'JUZ30', '01/07/2026', 'AKTIF', 'Data lama', null, 'Ayah Excel', 'Ibu Excel', '081299990005', 'Jl. Excel 2, Semarang']);
   fd = new FormData(); fd.append('file', new Blob([await wb.xlsx.writeBuffer()]), 'santri.xlsx');
   r = await pj('/import/students?dryRun=true', { method: 'POST', body: fd }); ok(r.s === 201 && r.j.ok === true && r.j.total === 2, 'impor (cek) file .xlsx: sel tanggal & no. WA angka dikenali, baris kosong dilewati ' + JSON.stringify(r.j.errors ?? []));
   ws.getRow(4).getCell(3).value = 'X'; fd = new FormData(); fd.append('file', new Blob([await wb.xlsx.writeBuffer()]), 'santri.xlsx');
@@ -202,12 +243,48 @@ r = await pj('/import/students/template?format=xlsx'); ok(r.s === 200 && String(
 { // data lama: santri berstatus CUTI / KELUAR bisa diimpor
   const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet('Data');
   ws.addRow(['ID Santri', 'Nama Lengkap', 'Jenis Kelamin', 'Tempat Lahir', 'Tanggal Lahir', 'Cabang', 'Jenjang', 'Tanggal Bergabung', 'Status', 'Keterangan Pendaftaran', 'Kategori Subsidi', 'Nama Ayah', 'Nama Ibu', 'No WA Wali', 'Alamat']);
-  ws.addRow([null, 'Uji Impor Cuti', 'P', 'Semarang', '2017-05-06', 'Supriyadi', 'JUZ30', '2025-07-01', 'Cuti', null, null, 'Ayah Lama', 'Ibu Lama', '081299990007', 'Jl. Lama 1, Semarang']);
-  ws.addRow([null, 'Uji Impor Keluar', 'P', 'Semarang', '2017-06-07', 'Supriyadi', 'JUZ30', '2025-07-01', 'KELUAR', null, null, 'Ayah Lama', 'Ibu Lama', '081299990008', 'Jl. Lama 2, Semarang']);
+  ws.addRow(['RTA-SPY-901', 'Uji Impor Cuti', 'P', 'Semarang', '2017-05-06', 'Supriyadi', 'JUZ30', '2025-07-01', 'Cuti', 'Data lama', null, 'Ayah Lama', 'Ibu Lama', '081299990007', 'Jl. Lama 1, Semarang']);
+  ws.addRow(['RTA-SPY-902', 'Uji Impor Keluar', 'P', 'Semarang', '2017-06-07', 'Supriyadi', 'JUZ30', '2025-07-01', 'KELUAR', 'Data lama', null, 'Ayah Lama', 'Ibu Lama', '081299990008', 'Jl. Lama 2, Semarang']);
   fd = new FormData(); fd.append('file', new Blob([await wb.xlsx.writeBuffer()]), 'lama.xlsx');
   r = await pj('/import/students', { method: 'POST', body: fd }); ok(r.s === 201 && r.j.ok === true && r.j.total === 2, 'impor .xlsx santri berstatus CUTI & KELUAR ' + JSON.stringify(r.j.errors ?? r.j));
   const st = async (q: string) => (await pj(`/students?q=${q}`)).j.rows[0]?.status;
   ok((await st('Uji Impor Cuti')) === 'CUTI' && (await st('Uji Impor Keluar')) === 'KELUAR', 'status CUTI & KELUAR tersimpan sesuai file');
+}
+{ // hanya ID, nama, JK, cabang, jenjang, tgl bergabung, status, keterangan yang wajib; ID Santri dari file = ID resmi
+  const head = 'ID Santri,Nama Lengkap,Jenis Kelamin,Tempat Lahir,Tanggal Lahir,Cabang,Jenjang,Tanggal Bergabung,Status,Keterangan Pendaftaran,Kategori Subsidi,Nama Ayah,Nama Ibu,No WA Wali,Alamat\n';
+  const up = (lines: string[]) => { const f = new FormData(); f.append('file', new Blob([head + lines.join('\n') + '\n'], { type: 'text/csv' }), 'm.csv'); return f; };
+  r = await pj('/import/students?dryRun=true', { method: 'POST', body: up([
+    ',Uji Tanpa ID,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,',
+    'RTA-NGL-950,Uji Tanpa Keterangan,P,,,Ngaliyan,Juz 30,01/07/2025,,,,,,,',
+    'NGL-1,Uji Format ID,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,',
+    'RTA-XYZ-001,Uji Kode Asing,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,',
+    'RTA-NGL-951,Uji ID Ganda A,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,',
+    'rta-ngl-951,Uji ID Ganda B,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,',
+    'RTA-NGL-952,Uji WA Salah,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,12345,',
+  ]) });
+  const msg = (row: number) => (r.j.errors ?? []).filter((e: any) => e.row === row).map((e: any) => e.message).join(' | ');
+  ok(r.s === 201 && r.j.ok === false && /ID Santri kosong/.test(msg(2)) && /Status kosong/.test(msg(3)) && /Keterangan Pendaftaran kosong/.test(msg(3)) && /berformat/.test(msg(4))
+    && /tidak dikenal/.test(msg(5)) && msg(6) === '' && /sama dengan baris 6/.test(msg(7)) && /No WA Wali tidak valid/.test(msg(8)),
+    'impor: kolom wajib kosong, format ID salah, kode cabang asing, ID ganda di file, dan no. WA salah ditolak per baris ' + JSON.stringify(r.j.errors));
+  r = await pj('/import/students', { method: 'POST', body: up([
+    'RTA-NGL-960,Uji Minimal Satu,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,',
+    'RTA-NGL-961,Uji Minimal Dua,L,Semarang,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,Ayah Minimal,,,',
+  ]) });
+  ok(r.s === 201 && r.j.ok === true && r.j.nis?.join() === 'RTA-NGL-960,RTA-NGL-961', 'impor hanya kolom wajib tersimpan, ID Santri sesuai file ' + JSON.stringify(r.j.errors ?? r.j));
+  const getS = async (q: string) => (await pj(`/students/${(await pj(`/students?q=${encodeURIComponent(q)}`)).j.rows[0]?.id}`)).j;
+  const m1 = await getS('Uji Minimal Satu'), m2 = await getS('Uji Minimal Dua');
+  ok(m1.nis === 'RTA-NGL-960' && m1.birthDate === null && m1.birthPlace === null && m1.age === null && m1.family.waPhone === null && m1.family.fatherName === null && m1.family.address === null
+    && m2.birthPlace === 'Semarang' && m2.family.fatherName === 'Ayah Minimal' && m1.familyId !== m2.familyId, 'kolom opsional kosong tersimpan NULL; tanpa no. WA tiap santri jadi keluarga sendiri');
+  r = await pj('/import/students?dryRun=true', { method: 'POST', body: up(['RTA-NGL-962,Uji Minimal Satu,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,']) });
+  ok(r.j.ok === false && /nama yang sama sudah terdaftar di cabang ini/.test(r.j.errors[0]?.message), 'tanpa tanggal lahir: santri ganda dicocokkan dengan nama + cabang');
+  r = await pj('/import/students?dryRun=true', { method: 'POST', body: up(['RTA-NGL-960,Uji ID Terpakai,P,,,Ngaliyan,Juz 30,01/07/2025,Aktif,Data lama,,,,,']) });
+  ok(r.j.ok === false && /sudah dipakai/.test(r.j.errors[0]?.message), 'ID Santri yang sudah ada di database ditolak');
+  r = await pj('/students', { method: 'POST', body: JSON.stringify({ ...baru, fullName: 'Uji Lanjut ID', subsidyId: undefined, family: { ...baru.family, waPhone: '081299990010' } }) });
+  ok(r.s === 201 && r.j.nis === 'RTA-NGL-962', `ID otomatis berikutnya melanjutkan nomor terbesar hasil impor (${r.j.nis})`);
+  r = await pj(`/bayar/families/${m1.familyId}/link`, { method: 'POST' });
+  ok(r.s === 400 && /No\. WA wali belum diisi/.test(r.j.message), 'kirim tagihan ke keluarga tanpa no. WA ditolak dengan pesan jelas');
+  r = await pj('/bayar/families'); const fm = r.j.find((x: any) => x.id === m1.familyId);
+  ok(fm?.fatherName === '(nama wali belum diisi)', 'label keluarga tanpa nama orang tua tidak kosong/null di menu Bayar');
 }
 
 console.log('Pengajuan mutasi');
@@ -334,18 +411,18 @@ r = await mn('/subsidies'); ok(r.s === 403, 'manajer tidak bisa melihat master s
   r = await pj('/subsidies', { method: 'POST', body: JSON.stringify({ ...baruSub, name: 'yatim' }) }); ok(r.s === 400, 'nama kategori ganda ditolak');
   r = await pj(`/subsidies/${bid}`, { method: 'PATCH', body: JSON.stringify({ ...baruSub, isActive: false }) }); ok(r.s === 200 && !(await pj('/subsidies')).j.find((x: any) => x.id === bid).isActive, 'kategori yang tidak dipakai bisa dinonaktifkan');
   fd = new FormData(); fd.append('file', new Blob(['ID Santri,Nama Lengkap,Jenis Kelamin,Tempat Lahir,Tanggal Lahir,Cabang,Jenjang,Tanggal Bergabung,Status,Keterangan Pendaftaran,Kategori Subsidi,Nama Ayah,Nama Ibu,No WA Wali,Alamat\n' +
-    ',Uji Impor Subsidi,P,Semarang,04/03/2017,Genuk,Juz 30,01/07/2026,Indent,,Daycare yayasan,Ayah,Ibu,081299990009,Jl. Uji\n'], { type: 'text/csv' }), 's.csv');
+    'RTA-GNK-901,Uji Impor Subsidi,P,Semarang,04/03/2017,Genuk,Juz 30,01/07/2026,Indent,Data lama,Daycare yayasan,Ayah,Ibu,081299990009,Jl. Uji\n'], { type: 'text/csv' }), 's.csv');
   r = await pj('/import/students?dryRun=true', { method: 'POST', body: fd }); ok(r.s === 201 && r.j.ok === false && /tidak berlaku di cabang Genuk/.test(r.j.errors[0]?.message), 'impor: subsidi yang tidak berlaku di cabang ditolak');
   fd = new FormData(); fd.append('file', new Blob(['ID Santri,Nama Lengkap,Jenis Kelamin,Tempat Lahir,Tanggal Lahir,Cabang,Jenjang,Tanggal Bergabung,Status,Keterangan Pendaftaran,Kategori Subsidi,Nama Ayah,Nama Ibu,No WA Wali,Alamat\n' +
-    ',Uji Impor Reguler,P,Semarang,04/03/2017,Genuk,Juz 30,01/07/2026,Indent,,Reguler,Ayah,Ibu,081299990009,Jl. Uji\n'], { type: 'text/csv' }), 's.csv');
+    'RTA-GNK-902,Uji Impor Reguler,P,Semarang,04/03/2017,Genuk,Juz 30,01/07/2026,Indent,Data lama,Reguler,Ayah,Ibu,081299990009,Jl. Uji\n'], { type: 'text/csv' }), 's.csv');
   r = await pj('/import/students?dryRun=true', { method: 'POST', body: fd }); ok(r.s === 201 && r.j.ok === true, 'impor: Kategori Subsidi "Reguler" dibaca sebagai tanpa subsidi');
   // impor dalam satu transaksi, kategori subsidi persis sesuai file; satu baris gagal → tidak ada yang tersimpan
   const csv = (lines: string[]) => { const f = new FormData(); f.append('file', new Blob(['ID Santri,Nama Lengkap,Jenis Kelamin,Tempat Lahir,Tanggal Lahir,Cabang,Jenjang,Tanggal Bergabung,Status,Keterangan Pendaftaran,Kategori Subsidi,Nama Ayah,Nama Ibu,No WA Wali,Alamat' + '\n' + lines.join('\n') + '\n'], { type: 'text/csv' }), 's.csv'); return f; };
-  const kakak = ',Uji Kakak Saudara,P,Semarang,04/03/2016,Genuk,Juz 30,01/07/2026,Aktif,,Saudara,Ayah Uji,Ibu Uji,081299990021,Jl. Uji';
-  const adik = ',Uji Adik Saudara,L,Semarang,05/06/2018,Genuk,Juz 30,01/07/2026,Aktif,,Saudara,Ayah Uji,Ibu Uji,081299990021,Jl. Uji';
-  const tunggal = ',Uji Tunggal Saudara,P,Semarang,07/08/2017,Genuk,Juz 30,01/07/2026,Aktif,,Saudara,Ayah Lain,Ibu Lain,081299990022,Jl. Uji';
-  const biasa = ',Uji Baris Biasa,L,Semarang,09/10/2017,Genuk,Juz 30,01/07/2026,Aktif,,,Ayah B,Ibu B,081299990023,Jl. Uji';
-  const ganda = ',Uji Kolom Santri,P,Semarang,06/05/2018,Genuk,Juz 30,01/07/2026,Aktif,,,Ayah G,Ibu G,081299990024,Jl. Uji'; // sudah terdaftar
+  const kakak = 'RTA-GNK-903,Uji Kakak Saudara,P,Semarang,04/03/2016,Genuk,Juz 30,01/07/2026,Aktif,Data lama,Saudara,Ayah Uji,Ibu Uji,081299990021,Jl. Uji';
+  const adik = 'RTA-GNK-904,Uji Adik Saudara,L,Semarang,05/06/2018,Genuk,Juz 30,01/07/2026,Aktif,Data lama,Saudara,Ayah Uji,Ibu Uji,081299990021,Jl. Uji';
+  const tunggal = 'RTA-GNK-905,Uji Tunggal Saudara,P,Semarang,07/08/2017,Genuk,Juz 30,01/07/2026,Aktif,Data lama,Saudara,Ayah Lain,Ibu Lain,081299990022,Jl. Uji';
+  const biasa = 'RTA-GNK-906,Uji Baris Biasa,L,Semarang,09/10/2017,Genuk,Juz 30,01/07/2026,Aktif,Data lama,,Ayah B,Ibu B,081299990023,Jl. Uji';
+  const ganda = 'RTA-GNK-907,Uji Kolom Santri,P,Semarang,06/05/2018,Genuk,Juz 30,01/07/2026,Aktif,Data lama,,Ayah G,Ibu G,081299990024,Jl. Uji'; // sudah terdaftar
   r = await pj('/import/students?dryRun=true', { method: 'POST', body: csv([biasa, ganda]) });
   ok(r.s === 201 && r.j.ok === false && r.j.errors.length === 1 && r.j.errors[0].row === 3 && /sudah terdaftar/.test(r.j.errors[0].message), 'Periksa dulu menemukan santri ganda di database, dengan nomor baris');
   r = await pj('/import/students', { method: 'POST', body: csv([biasa, ganda]) });
@@ -363,9 +440,9 @@ r = await mn('/subsidies'); ok(r.s === 403, 'manajer tidak bisa melihat master s
   }
   // kolom subsidi diikuti apa adanya: Saudara tetap Saudara, Reguler tetap Reguler walau orang tuanya sama; lalu edit subsidi per anak
   {
-    const r1 = ',Uji Kakak Reguler Impor,P,Semarang,11/01/2016,Genuk,Juz 30,01/07/2026,Aktif,,Saudara,Ayah R,Ibu R,081299990051,Jl. Uji';
-    const r2 = ',Uji Adik Reguler Impor,L,Semarang,12/02/2018,Genuk,Juz 30,01/07/2026,Aktif,,Reguler,Ayah R,Ibu R,081299990051,Jl. Uji';
-    const r3 = ',Uji Anak Tunggal Reguler,L,Semarang,13/03/2018,Genuk,Juz 30,01/07/2026,Aktif,,,Ayah T,Ibu T,081299990052,Jl. Uji';
+    const r1 = 'RTA-GNK-908,Uji Kakak Reguler Impor,P,Semarang,11/01/2016,Genuk,Juz 30,01/07/2026,Aktif,Data lama,Saudara,Ayah R,Ibu R,081299990051,Jl. Uji';
+    const r2 = 'RTA-GNK-909,Uji Adik Reguler Impor,L,Semarang,12/02/2018,Genuk,Juz 30,01/07/2026,Aktif,Data lama,Reguler,Ayah R,Ibu R,081299990051,Jl. Uji';
+    const r3 = 'RTA-GNK-910,Uji Anak Tunggal Reguler,L,Semarang,13/03/2018,Genuk,Juz 30,01/07/2026,Aktif,Data lama,,Ayah T,Ibu T,081299990052,Jl. Uji';
     r = await pj('/import/students', { method: 'POST', body: csv([r1, r2, r3]) });
     const std = (await pj('/branches')).j.find((b: any) => b.code === 'GNK').sppStandard;
     const get = async (q: string) => (await pj(`/students/${(await pj(`/students?q=${encodeURIComponent(q)}`)).j.rows[0]?.id}`)).j;
@@ -394,12 +471,13 @@ console.log('SPP bulanan (simulasi tanggal 1)');
   const next = ym(nx), period = next + '-01';
   const label = `SPP ${['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][nx.getUTCMonth()]} ${nx.getUTCFullYear()}`;
   const f = new FormData(); f.append('file', new Blob(['ID Santri,Nama Lengkap,Jenis Kelamin,Tempat Lahir,Tanggal Lahir,Cabang,Jenjang,Tanggal Bergabung,Status,Keterangan Pendaftaran,Kategori Subsidi,Nama Ayah,Nama Ibu,No WA Wali,Alamat\n' + [
-    `,Uji Masuk Tanggal Satu,P,Semarang,01/02/2017,Genuk,Juz 30,${dmy(nx, 1)},Aktif,,,Ayah S1,Ibu S1,081299990031,Jl. Uji`,
-    `,Uji Masuk Tanggal Dua,L,Semarang,02/02/2017,Genuk,Juz 30,${dmy(nx, 2)},Aktif,,,Ayah S2,Ibu S2,081299990032,Jl. Uji`,
-    ',Uji Cuti Tanggal Satu,P,Semarang,03/02/2017,Genuk,Juz 30,01/01/2026,Cuti,,,Ayah S3,Ibu S3,081299990033,Jl. Uji',
-    ',Uji Indent Tanggal Satu,L,Semarang,04/02/2017,Genuk,Juz 30,01/01/2026,Indent,,,Ayah S4,Ibu S4,081299990034,Jl. Uji',
+    `RTA-GNK-911,Uji Masuk Tanggal Satu,P,Semarang,01/02/2017,Genuk,Juz 30,${dmy(nx, 1)},Aktif,Data lama,,Ayah S1,Ibu S1,081299990031,Jl. Uji`,
+    `RTA-GNK-912,Uji Masuk Tanggal Dua,L,Semarang,02/02/2017,Genuk,Juz 30,${dmy(nx, 2)},Aktif,Data lama,,Ayah S2,Ibu S2,081299990032,Jl. Uji`,
+    'RTA-GNK-913,Uji Cuti Tanggal Satu,P,Semarang,03/02/2017,Genuk,Juz 30,01/01/2026,Cuti,Data lama,,Ayah S3,Ibu S3,081299990033,Jl. Uji',
+    'RTA-GNK-914,Uji Indent Tanggal Satu,L,Semarang,04/02/2017,Genuk,Juz 30,01/01/2026,Indent,Data lama,,Ayah S4,Ibu S4,081299990034,Jl. Uji',
+    'RTA-GNK-915,Uji Santri Lama Tanpa Tanggal,P,Semarang,05/02/2017,Genuk,Juz 30,,Aktif,Mengulang,,Ayah S5,Ibu S5,081299990035,Jl. Uji', // tgl bergabung kosong = santri lama
   ].join('\n') + '\n'], { type: 'text/csv' }), 's.csv');
-  r = await pj('/import/students', { method: 'POST', body: f }); ok(r.s === 201 && r.j.ok === true && r.j.total === 4, 'santri uji tanggal 1 diimpor ' + JSON.stringify(r.j.errors ?? r.j));
+  r = await pj('/import/students', { method: 'POST', body: f }); ok(r.s === 201 && r.j.ok === true && r.j.total === 5, 'santri uji tanggal 1 diimpor ' + JSON.stringify(r.j.errors ?? r.j));
   const sid = async (q: string) => (await pj(`/students?q=${encodeURIComponent(q)}`)).j.rows[0]?.id;
   const sppOf = async (q: string) => { const id = await sid(q); return { id, st: (await pj(`/students/${id}`)).j, inv: (await pj(`/spp/students/${id}/invoices`)).j.filter((i: any) => i.type === 'SPP' && i.period === period) }; };
   const before = await sppOf('Uji Masuk Tanggal Satu'); ok(before.inv.length === 0, `sebelum tanggal 1 ${next}: belum ada tagihan SPP`);
@@ -415,6 +493,13 @@ console.log('SPP bulanan (simulasi tanggal 1)');
   ok(t1.inv.length === 1 && t1.inv[0].amount === t1.st.sppRate && t1.inv[0].label === label && t1.inv[0].status === 'BELUM', `santri Aktif yang masuk tepat tgl 1 ditagih: ${t1.inv[0]?.label} ${t1.inv[0]?.amount}, status ${t1.inv[0]?.status}`);
   ok((await sppOf('Uji Masuk Tanggal Dua')).inv.length === 0, 'santri yang masuk tgl 2 belum ditagih bulan itu');
   ok((await sppOf('Uji Cuti Tanggal Satu')).inv.length === 0 && (await sppOf('Uji Indent Tanggal Satu')).inv.length === 0, 'santri Cuti & Indent tidak ditagih SPP');
+  {
+    const lama = await sppOf('Uji Santri Lama Tanpa Tanggal');
+    const all = (await pj(`/spp/students/${lama.id}/invoices`)).j;
+    ok(lama.st.joinDate === null && lama.inv.length === 1 && !all.some((i: any) => i.type === 'PENDAFTARAN') && lama.st.history[0]?.effectiveDate,
+      'tgl bergabung kosong = santri lama: tetap ditagih SPP, tanpa tagihan pendaftaran, riwayat status tetap bertanggal');
+    const reg = (await pj('/registrations')).j; ok(!JSON.stringify(reg).includes('Uji Santri Lama Tanpa Tanggal'), 'santri lama tanpa tgl bergabung tidak muncul di menu Pendaftaran');
+  }
   const ka = await sppOf('Uji Kakak Saudara');
   ok(ka.inv.length === 1 && ka.inv[0].amount === ka.st.sppRate && ka.st.subsidyId != null, `santri bersubsidi ditagih sesuai tarifnya (${ka.inv[0]?.amount})`);
   r = await pj(`/spp/generate?month=${next}`, { method: 'POST' }); ok(r.s === 201 && r.j.created === 0, 'dijalankan ulang (penjadwal tiap jam) → tidak ada tagihan ganda');

@@ -9,13 +9,15 @@ import { CurrentUser, Perm } from '../../common/auth';
 import type { AuthUser } from '../../common/auth';
 import { AuditService } from '../../common/audit.service';
 import { StudentsModule } from '../students/students.module';
-import { StudentsService } from '../students/students.service';
+import { NIS_RULE, StudentsService } from '../students/students.service';
 import { FamiliesModule, FamiliesService, PHONE_RULE } from '../families/families.module';
 import { SubsidiesService } from '../subsidies/subsidies.module';
 
-// Kolom = spreadsheet data santri. ID Santri dikosongkan: nomor induk dibuat otomatis saat impor.
+// Kolom = spreadsheet data santri. Wajib: ID Santri (dipakai sebagai ID resmi), Nama Lengkap, Jenis Kelamin, Cabang, Jenjang,
+// Status, Keterangan Pendaftaran. Kolom lain boleh kosong (migrasi 015/016) dan dilengkapi kemudian;
+// Tanggal Bergabung kosong = santri lama (migrasi 016).
 const TEMPLATE = 'ID Santri,Nama Lengkap,Jenis Kelamin,Tempat Lahir,Tanggal Lahir,Cabang,Jenjang,Tanggal Bergabung,Status,Keterangan Pendaftaran,Kategori Subsidi,Nama Ayah,Nama Ibu,No WA Wali,Alamat,Pekerjaan Ayah,Pekerjaan Ibu\n' +
-  ',Aisyah Putri,P,Semarang,2017-03-04,Supriyadi,JUZ30,2026-07-01,AKTIF,Daftar lewat WhatsApp,,Rahmat,Siti,081234567890,"Jl. Contoh No. 1, Semarang",Wiraswasta,Ibu rumah tangga\n';
+  'RTA-SPY-001,Aisyah Putri,P,Semarang,2017-03-04,Supriyadi,JUZ30,2026-07-01,AKTIF,Daftar lewat WhatsApp,,Rahmat,Siti,081234567890,"Jl. Contoh No. 1, Semarang",Wiraswasta,Ibu rumah tangga\n';
 const STATUSES = ['INDENT', 'AKTIF', 'CUTI', 'KELUAR'];
 // Header dinormalkan ("No WA Wali" -> no_wa_wali); nama kolom template lama tetap diterima
 const HEADER_ALIAS: Record<string, string> = { jk: 'jenis_kelamin', tgl_lahir: 'tanggal_lahir', tgl_masuk: 'tanggal_bergabung', no_wa: 'no_wa_wali' };
@@ -98,6 +100,8 @@ export class ImportService {
     const parsed = await readRows(buf);
     if (parsed.length > MAX_ROWS) throw new BadRequestException(`Maksimal ${MAX_ROWS} baris per file`);
     const bs = await this.db.many('SELECT id, name FROM branches WHERE is_active');
+    const codes = new Set((await this.db.many('SELECT code FROM branches')).map((x) => x.code)); // ID lama boleh berkode cabang nonaktif (cabang pendaftaran)
+    const seenNis = new Map<string, number>(); // ID ganda di dalam file
     const cs = await this.db.many('SELECT id, branch_id AS "branchId", level FROM classes');
     const subs = await this.subsidies.list();
     const errors: { row: number; message: string }[] = [];
@@ -109,27 +113,42 @@ export class ImportService {
       const c = b && cs.find((x) => x.branchId === b.id && x.level === (r.jenjang ?? '').toUpperCase().replace(/\s+/g, ''));
       const gender = GENDER[(r.jenis_kelamin ?? '').toLowerCase()];
       const birthDate = isoDate(r.tanggal_lahir), joinDate = isoDate(r.tanggal_bergabung);
-      const status = (r.status || 'AKTIF').toUpperCase();
+      const status = (r.status ?? '').toUpperCase();
+      const nis = (r.id_santri ?? '').toUpperCase().replace(/\s+/g, '');
+      const phone = (r.no_wa_wali ?? '').replace(/[\s-]/g, '');
       const err = (m: string) => errors.push({ row, message: m });
+      // --- wajib ---
+      const nisMatch = nis.match(NIS_RULE);
+      if (!nis) err('ID Santri kosong');
+      else if (!nisMatch) err(`ID Santri "${r.id_santri}" harus berformat RTA-<kode cabang>-<nomor>, mis. RTA-GNK-001`);
+      else if (!codes.has(nisMatch[1])) err(`Kode cabang "${nisMatch[1]}" pada ID Santri tidak dikenal. Pilihan: ${[...codes].join(', ')}`);
+      else if (seenNis.has(nis)) err(`ID Santri ${nis} sama dengan baris ${seenNis.get(nis)}`);
+      else seenNis.set(nis, row);
       if (!r.nama_lengkap) err('Nama Lengkap kosong');
       if (!gender) err('Jenis Kelamin harus L atau P');
-      if (!r.tempat_lahir) err('Tempat Lahir kosong');
-      if (!birthDate) err('Tanggal Lahir harus YYYY-MM-DD atau DD/MM/YYYY');
-      if (!joinDate) err('Tanggal Bergabung harus YYYY-MM-DD atau DD/MM/YYYY');
+      if (!r.keterangan_pendaftaran) err('Keterangan Pendaftaran kosong');
+      // --- opsional, tapi bila diisi formatnya harus benar ---
+      if (r.tanggal_lahir && !birthDate) err('Tanggal Lahir harus YYYY-MM-DD atau DD/MM/YYYY (atau kosongkan)');
+      // kosong = santri lama (mengulang / lupa kapan bergabung): tanpa tagihan pendaftaran, tetap ikut SPP & absensi
+      if (r.tanggal_bergabung && !joinDate) err('Tanggal Bergabung harus YYYY-MM-DD atau DD/MM/YYYY (atau kosongkan untuk santri lama)');
       if (!b) err(`Cabang "${r.cabang ?? ''}" tidak dikenal`);
       else if (user.branchIds && !user.branchIds.includes(b.id)) err(`Cabang "${b.name}" di luar hak akses Anda`);
       if (b && !c) err(`Jenjang "${r.jenjang ?? ''}" tidak tersedia di cabang ${b.name}`);
       // "Reguler" (baris tarif standar di Pengaturan) / "Tanpa subsidi" / "-" = tanpa subsidi
       if (/^(reguler|tanpa subsidi|-)$/i.test(r.kategori_subsidi?.trim() ?? '')) r.kategori_subsidi = '';
-      if (!STATUSES.includes(status)) err('Status harus INDENT, AKTIF, CUTI, atau KELUAR');      if (r.kategori_subsidi && !user.perms.includes('spp.input')) err('Kategori Subsidi hanya boleh diisi PJ RTA; kosongkan kolom ini');
+      if (!status) err('Status kosong (isi INDENT, AKTIF, CUTI, atau KELUAR)');
+      else if (!STATUSES.includes(status)) err('Status harus INDENT, AKTIF, CUTI, atau KELUAR');
+      if (r.kategori_subsidi && !user.perms.includes('spp.input')) err('Kategori Subsidi hanya boleh diisi PJ RTA; kosongkan kolom ini');
       const sub = r.kategori_subsidi ? subs.find((x) => x.isActive && x.name.toLowerCase() === r.kategori_subsidi.toLowerCase()) : undefined;
       if (r.kategori_subsidi && !sub) err(`Kategori Subsidi "${r.kategori_subsidi}" tidak dikenal. Pilihan: Reguler (kosong), ${subs.filter((x) => x.isActive).map((x) => x.name).join(', ')}`);
       else if (sub && b && !sub.rates.some((x: any) => x.branchId === b.id && x.available)) err(`Subsidi "${sub.name}" tidak berlaku di cabang ${b.name}`);
-      if (!PHONE_RULE.test((r.no_wa_wali ?? '').replace(/[\s-]/g, ''))) err('No WA Wali tidak valid (awali 08 atau +62)');
-      if (!r.nama_ayah || !r.nama_ibu || !r.alamat) err('Nama Ayah, Nama Ibu, dan Alamat wajib diisi');
-      if (b && c && gender && birthDate && joinDate) rows.push({ row, sibling: !!sub?.isSibling, fullName: r.nama_lengkap, nickname: r.nama_panggilan || undefined, gender, birthPlace: r.tempat_lahir, birthDate,
-        school: r.sekolah || undefined, branchId: b.id, classId: c.id, joinDate, status, registrationNote: r.keterangan_pendaftaran || undefined, subsidyId: sub?.id,
-        family: { fatherName: r.nama_ayah, motherName: r.nama_ibu, waPhone: r.no_wa_wali, address: r.alamat, fatherJob: r.pekerjaan_ayah || undefined, motherJob: r.pekerjaan_ibu || undefined } });
+      if (phone && !PHONE_RULE.test(phone)) err('No WA Wali tidak valid (awali 08 atau +62, atau kosongkan)');
+      // tanpa no. WA: keluarga baru sendiri (tidak dicocokkan dengan saudara), link tagihan baru bisa dikirim setelah nomornya diisi
+      if (nisMatch && b && c && gender && (joinDate || !r.tanggal_bergabung)) rows.push({ row, nis, sibling: !!sub?.isSibling, fullName: r.nama_lengkap, nickname: r.nama_panggilan || undefined, gender,
+        birthPlace: r.tempat_lahir || undefined, birthDate: birthDate ?? undefined,
+        school: r.sekolah || undefined, branchId: b.id, classId: c.id, joinDate: joinDate ?? undefined, status, registrationNote: r.keterangan_pendaftaran, subsidyId: sub?.id,
+        family: { fatherName: r.nama_ayah || undefined, motherName: r.nama_ibu || undefined, waPhone: phone || undefined, address: r.alamat || undefined,
+          fatherJob: r.pekerjaan_ayah || undefined, motherJob: r.pekerjaan_ibu || undefined } });
     });
     if (errors.length) return { ok: false, total: parsed.length, valid: parsed.length - new Set(errors.map((e) => e.row)).size, errors };
     try {
@@ -140,13 +159,15 @@ export class ImportService {
           catch (e: any) { await c.query('ROLLBACK TO SAVEPOINT baris'); errors.push({ row, message: this.message(e) }); }
         };
         const created: { row: number; id: number; nis: string; familyId: number }[] = [];
-        for (const { row, sibling, ...r } of rows) await step(row, async () => {
+        for (const { row, nis, sibling, ...r } of rows) await step(row, async () => {
           // keluarga yang sudah ada (no. WA sama, termasuk dari baris sebelumnya di file ini) dipakai ulang
-          const lookup = await this.fam.lookup(user, r.family.waPhone, c);
-          if (lookup.found && !lookup.inScope) throw new BadRequestException(lookup.message);
-          if (lookup.found && lookup.family) { r.familyId = lookup.family.id; delete r.family; }
+          if (r.family.waPhone) {
+            const lookup = await this.fam.lookup(user, r.family.waPhone, c);
+            if (lookup.found && !lookup.inScope) throw new BadRequestException(lookup.message);
+            if (lookup.found && lookup.family) { r.familyId = lookup.family.id; delete r.family; }
+          }
           // kategori diskon saudara dipasang setelah baris tersimpan, persis sesuai file (lihat assignSubsidy)
-          created.push({ row, ...(await this.students.create(user, sibling ? { ...r, subsidyId: undefined } : r, c)) });
+          created.push({ row, ...(await this.students.create(user, sibling ? { ...r, subsidyId: undefined } : r, c, { nis })) });
         });
         for (const r of rows.filter((x) => x.sibling)) {
           const s = created.find((x) => x.row === r.row);

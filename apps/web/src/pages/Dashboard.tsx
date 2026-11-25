@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { ArrowLeftRight, BookOpen, CheckCircle2, Hourglass, Lock, LogOut, Pause, Receipt, UserCheck, Users, Wallet } from 'lucide-react';
+import { ArrowLeftRight, BookOpen, CalendarCheck, CheckCircle2, Hourglass, Lock, LogOut, Pause, Receipt, UserCheck, Users, Wallet } from 'lucide-react';
 import { can, get, todayWIB } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { Avatar, Bar, Card, COLOR, Empty, Ring, SearchBox, Stat } from '../components/ui';
@@ -137,6 +137,17 @@ export default function Dashboard() {
           cta: 'Tinjau',
           list: true,
           lines: t.payments.map((p: any) => `Kel. ${p.fatherName}${p.items ? ` · ${p.items}` : ''}`),
+        },
+        d.absensi?.belumHariIni?.length > 0 && {
+          key: 'absensi',
+          to: '/absensi',
+          icon: CalendarCheck,
+          bg: 'bg-rose-bg',
+          fg: 'text-rose-fg',
+          title: 'Absensi hari ini',
+          n: d.absensi.belumHariIni.reduce((a: number, c: any) => a + c.todo, 0),
+          cta: 'Isi absensi',
+          lines: d.absensi.belumHariIni.slice(0, 3).map((c: any) => `${c.name}: ${c.todo} santri belum diabsen`),
         },
         d.hafalan?.belumInputPekanIni > 0 && {
           key: 'hafalan',

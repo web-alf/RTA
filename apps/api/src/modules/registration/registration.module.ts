@@ -4,6 +4,7 @@ import { printedBy, rp, sendPdf, sendXlsx } from '../../common/report';
 import type { Sheet } from '../../common/report';
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
 import { Db } from '../../db/db.module';
+import { FAMILY_LABEL } from '../families/families.module';
 import { CurrentUser, Perm } from '../../common/auth';
 import type { AuthUser } from '../../common/auth';
 import { AuditService } from '../../common/audit.service';
@@ -43,7 +44,7 @@ export class RegistrationService {
     const inv = await this.db.many(sql, [scope, start]);
     const ids = [...new Set(inv.map((i) => i.student_id))];
     const st = ids.length ? await this.db.many(
-      `SELECT s.id, s.nis, s.full_name, s.nickname, s.status, s.join_date, s.family_id, b.name AS branch, c.name AS class, f.father_name
+      `SELECT s.id, s.nis, s.full_name, s.nickname, s.status, s.join_date, s.family_id, b.name AS branch, c.name AS class, ${FAMILY_LABEL()} AS father_name
        FROM students s JOIN branches b ON b.id = s.branch_id JOIN classes c ON c.id = s.class_id JOIN families f ON f.id = s.family_id WHERE s.id = ANY($1)`, [ids]) : [];
     // pembayaran terakhir per tagihan (tanggal & cara bayar untuk jadwal); dibatalkan/ditolak tidak dihitung
     const pays = inv.length ? await this.db.many(

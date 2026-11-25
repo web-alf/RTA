@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get,
 import { ArrayUnique, IsArray, IsBoolean, IsDateString, IsEmail, IsInt, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { randomBytes } from 'crypto';
 import { Db } from '../../db/db.module';
+import { FAMILY_LABEL } from '../families/families.module';
 import { CurrentUser, Perm } from '../../common/auth';
 import type { AuthUser } from '../../common/auth';
 import { AuditService } from '../../common/audit.service';
@@ -49,7 +50,7 @@ export class UsersService implements OnModuleInit, OnModuleDestroy {
     if (q) { params.push(`%${q}%`); conds.push(`(u.name ILIKE $${params.length} OR u.email ILIKE $${params.length})`); }
     const sql = `SELECT u.id, u.name, u.email, u.phone, u.is_active AS "isActive", u.locked_until AS "lockedUntil",
                         u.must_change_password AS "mustChangePassword", r.code AS "roleCode", r.name AS "roleName", u.created_at AS "createdAt",
-                        u.family_id AS "familyId", f.father_name AS "familyName", to_char(u.delete_after, 'YYYY-MM-DD') AS "deleteAfter", u.delete_reason AS "deleteReason"
+                        u.family_id AS "familyId", ${FAMILY_LABEL()} AS "familyName", to_char(u.delete_after, 'YYYY-MM-DD') AS "deleteAfter", u.delete_reason AS "deleteReason"
                  FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN families f ON f.id = u.family_id WHERE ${conds.join(' AND ')} ORDER BY u.name`;
     const rows = await this.db.many(sql, params);
     const ubs = await this.db.many(

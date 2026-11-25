@@ -215,10 +215,10 @@ export default function Akun() {
                   key={f.id}
                   type="button"
                   className="w-full text-left p-3 rounded-2xl bg-n-50 hover:bg-n-100 min-h-[44px]"
-                  onClick={() => setForm({ ...form, familyId: f.id, familyName: f.fatherName, name: form.name || f.fatherName })}
+                  onClick={() => setForm({ ...form, familyId: f.id, familyName: f.fatherName || f.motherName || '', name: form.name || f.fatherName || f.motherName || '' })}
                 >
                   <div className="font-semibold text-sm">
-                    {f.fatherName} & {f.motherName}
+                    {[f.fatherName, f.motherName].filter(Boolean).join(' & ') || 'Nama orang tua belum diisi'}
                   </div>
                   <div className="text-xs text-n-600">{f.kids.map((k: any) => `${k.name} (${k.branch})`).join(', ') || 'Belum ada santri'}</div>
                 </button>

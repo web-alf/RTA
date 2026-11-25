@@ -1,5 +1,5 @@
 // Daftar menu dan aksi (sumber kebenaran untuk matriks Role)
-export const MENUS = ['dashboard', 'spp', 'bayar', 'lps', 'kelas', 'santri', 'ustadzah', 'wali', 'pengajuan', 'role', 'akun', 'audit', 'pengaturan', 'agenda', 'pendaftaran', 'kas', 'portal'] as const;
+export const MENUS = ['dashboard', 'spp', 'bayar', 'lps', 'kelas', 'santri', 'ustadzah', 'wali', 'pengajuan', 'role', 'akun', 'audit', 'pengaturan', 'agenda', 'pendaftaran', 'kas', 'absensi', 'portal'] as const;
 export const ACTIONS = ['lihat', 'input', 'edit', 'ekspor', 'impor', 'setujui'] as const;
 export type Perm = `${(typeof MENUS)[number]}.${(typeof ACTIONS)[number]}`;
 
@@ -17,6 +17,7 @@ export const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
     ...full('role'), ...full('akun'), ...all('audit', ['lihat']), ...all('pengaturan', ['lihat', 'input', 'edit']),
     ...all('agenda', ['lihat', 'input', 'edit']), ...all('pendaftaran', ['lihat', 'edit', 'ekspor']),
     ...all('kas', ['lihat', 'input', 'edit', 'ekspor', 'setujui']), // kas.edit = kelola kategori/barang/stok; kas.setujui = setujui pengeluaran & batalkan penjualan
+    ...all('absensi', ['lihat', 'input', 'ekspor']),                // absensi.input = isi & ubah absensi (semua cabang)
   ],
   USTADZAH: [
     ...lihatEkspor('dashboard'), ...all('spp', ['lihat']), ...all('bayar', ['lihat', 'input']), ...all('lps', ['lihat']),
@@ -24,11 +25,12 @@ export const DEFAULT_ROLE_PERMS: Record<string, string[]> = {
     ...all('wali', ['lihat', 'input', 'edit']), ...all('pengajuan', ['lihat', 'input']), ...all('agenda', ['lihat']), ...all('pendaftaran', ['lihat']),
     ...all('pengaturan', ['lihat', 'input']), // pengaturan.input = ubah rekening cabang sendiri; nilai lain hanya baca
     ...all('kas', ['lihat', 'input']),        // jual barang & catat pengeluaran cabangnya (pengeluaran menunggu PJ)
+    ...all('absensi', ['lihat', 'input', 'ekspor']), // isi & ubah absensi cabang yang ditugaskan saja (scope di server)
   ],
   MANAJER: [
     ...lihatEkspor('dashboard'), ...lihatEkspor('spp'), ...all('bayar', ['lihat']), ...lihatEkspor('lps'), ...lihatEkspor('kelas'),
     ...lihatEkspor('santri'), ...lihatEkspor('ustadzah'), ...lihatEkspor('wali'), ...all('pengajuan', ['lihat']), ...all('pengaturan', ['lihat']), ...all('agenda', ['lihat']), ...lihatEkspor('pendaftaran'),
-    ...lihatEkspor('kas'),
+    ...lihatEkspor('kas'), ...lihatEkspor('absensi'),
   ],
   WALI: [...all('portal', ['lihat', 'input'])],
 };

@@ -52,7 +52,7 @@ bun run cron                            # penjadwal sekali jalan (SPP + hapus ak
 
 ```
 apps/api/
-  sql/NNN_*.sql            migrasi berurutan (001 Fase 1, 002 Fase 2/3, 003 keterangan pendaftaran, 004 gabung Admin→PJ + role WALI, 005 ID santri RTA-<cabang>-NNN, 006 hapus akun 30 hari, 007 tabel settings, 008 master subsidi, 009 ganti nama Saudara, 010 agenda, 011 cicilan pendaftaran, 012 rekening per cabang, 013 kas) — JANGAN ubah file yang sudah rilis, buat file baru
+  sql/NNN_*.sql            migrasi berurutan (001 Fase 1, 002 Fase 2/3, 003 keterangan pendaftaran, 004 gabung Admin→PJ + role WALI, 005 ID santri RTA-<cabang>-NNN, 006 hapus akun 30 hari, 007 tabel settings, 008 master subsidi, 009 ganti nama Saudara, 010 agenda, 011 cicilan pendaftaran, 012 rekening per cabang, 013 kas, 014 absensi, 015 kolom opsional impor: lahir & data keluarga boleh NULL, 016 join_date NULL = santri lama) — JANGAN ubah file yang sudah rilis, buat file baru
   scripts/migrate.ts       runner migrasi · scripts/create-admin.ts (akun PJ pertama di produksi) · scripts/cron.ts (penjadwal sekali jalan untuk Cron Job)
   tsconfig.build.json      build ke dist/ (CommonJS, tanpa tipe Bun) untuk hosting Node
   dev/                     LOKAL SAJA, tidak ikut image: reset-db.ts, seed-dev.ts (akun uji), demo.ts (data contoh), test-bill.ts
@@ -74,7 +74,8 @@ apps/api/
                            subsidies (master subsidi kategori × cabang; SubsidiesService global: resolve, reconcileFamily, rebranch),
                            agenda (menu Agenda; branch_id NULL = semua cabang; batal dengan alasan, tidak dihapus),
                            registration (menu Pendaftaran: daftar & skema cicilan biaya pendaftaran; pakai BillingService.invoicesSql),
-                           kas (menu Kas: katalog barang & stok per cabang, penjualan, pengeluaran + persetujuan, laporan PDF)
+                           kas (menu Kas: katalog barang & stok per cabang, penjualan, pengeluaran + persetujuan, laporan PDF),
+                           absensi (menu Absensi: kehadiran harian H/I/S/A per kelas, rekap bulanan, kabari wali via WA)
   test/e2e.ts
 apps/web/src/
   main.tsx                 rute; /login dan /bayar/:token publik, sisanya di dalam <Layout/>
@@ -114,7 +115,7 @@ apps/web/src/
 ## Aturan domain (jangan diubah tanpa persetujuan PJ)
 
 - **Hafalan**: capaian = (jumlah ayat surah sebelumnya dalam juz + ayat posisi terakhir) ÷ total ayat juz × 100. Total: Juz 30 = 564, Juz 29 = 431, Juz 28 = 137 (tabel `surahs`, urutan hafalan dari An-Naba'/Al-Mulk/Al-Mujadilah). Input per pekan (Senin WIB); hanya santri **Aktif**; ayat > jumlah ayat surah ditolak; posisi turun butuh `confirmLower`.
-- **Tagihan**: SPP dibuat otomatis untuk santri Aktif yang masuk ≤ tgl 1 (penjadwal tiap jam + saat start, atau Cron Job `scripts/cron.ts` di hosting tanpa proses permanen; idempotent lewat indeks unik). Daftar ulang per tahun pembelajaran (nominal & bulan mulai dari Pengaturan; bawaan Rp100.000, Juli). Pendaftaran dibuat saat santri baru. Mutasi yang disetujui menagih biaya pindah sebagai daftar ulang; **tidak ditagih dua kali** dalam satu tahun.
+- **Tagihan**: SPP dibuat otomatis untuk santri Aktif yang masuk ≤ tgl 1 (`join_date` NULL = santri lama hasil impor, selalu ikut; begitu juga absensi — setiap filter `join_date` wajib `IS NULL OR …`) (penjadwal tiap jam + saat start, atau Cron Job `scripts/cron.ts` di hosting tanpa proses permanen; idempotent lewat indeks unik). Daftar ulang per tahun pembelajaran (nominal & bulan mulai dari Pengaturan; bawaan Rp100.000, Juli). Pendaftaran dibuat saat santri baru. Mutasi yang disetujui menagih biaya pindah sebagai daftar ulang; **tidak ditagih dua kali** dalam satu tahun.
 - **Subsidi** (prd.md 8.2): master `subsidies` + `subsidy_rates` (per cabang). Tarif santri = `SubsidiesService.resolve()` (TARIF = nominal, DISKON = % dari tarif standar cabang); jangan hitung tarif subsidi di tempat lain. Setiap perubahan status / mutasi wajib memanggil `reconcileFamily()` (diskon saudara) dan `rebranch()` (mutasi) di dalam transaksinya, lalu `logChanges()`.
 - **Status tagihan tidak disimpan**, selalu diturunkan dari alokasi pembayaran (`INVOICE_STATUS_SQL` di billing): LUNAS · MENUNGGU · TUNGGAKAN (periode < bulan ini) · BELUM. Jangan menambah kolom status.
 - **Cicilan pendaftaran**: satu cicilan = satu tagihan `PENDAFTARAN` (`installment_no/total`, `due_date`), dibuat lewat `/registrations/:id/plan` (tagihan lama di-void). Status TERJADWAL/TUNGGAKAN per jatuh tempo diturunkan di `INVOICE_STATUS_SQL`; jangan membuat jalur bayar sebagian.
@@ -125,7 +126,7 @@ apps/web/src/
 - **Rekening transfer per cabang** (`branches.bank_*`, `SettingsService.banks()`): PJ mengubah semua, ustadzah hanya cabangnya (`pengaturan.input`, scope cabang). Kosong = rekening bawaan yayasan (`SETTING_DEFAULTS.bank*`). Halaman wali menampilkan rekening cabang dari tagihannya.
 - **Pengaturan**: nilai bisnis yang bisa diubah PJ (biaya daftar ulang, bulan mulai tahun ajaran, masa link, template WA) dibaca lewat `SettingsService.get()`. **Jangan** menulis nilai tetap atau `process.env` baru untuk aturan bisnis; tambahkan kunci ke `SETTING_DEFAULTS`. Tarif per cabang tetap di `branches`.
 - **LPS**: DRAFT → DIPERIKSA → DISETUJUI → TERBIT; revisi kembali ke DRAFT dengan catatan. Diisi PJ; ustadzah hanya baca & unduh yang terbit. Aspek: BTQ, Tahsin, Adab, Doa harian; nilai: Sangat baik / Baik / Perlu latihan.
-- **ID santri**: `RTA-<kode cabang pendaftaran>-<urut per cabang, 3 digit>` (mis. `RTA-GNK-001`), dibuat di `StudentsService.nextNis` dengan advisory lock per cabang; **tidak berubah saat mutasi**. ID lama di `legacy_nis`.
+- **ID santri**: `RTA-<kode cabang pendaftaran>-<urut per cabang, 3 digit>` (mis. `RTA-GNK-001`), dibuat di `StudentsService.nextNis` dengan advisory lock per cabang; impor data lama memakai ID dari file (`useNis`, wajib format sama); **tidak berubah saat mutasi**. Data hasil impor boleh tanpa tempat/tgl lahir, nama orang tua, no. WA, alamat: label keluarga di SQL lewat `FAMILY_LABEL()`, jangan `f.father_name` mentah. ID lama di `legacy_nis`.
 - **Pengajuan keluar/mutasi**: entitas terpisah dari status; selama MENUNGGU santri tetap Aktif di cabang asal; satu pengajuan menunggu per santri; cabang/kelas asal disimpan (`from_branch_id`). Setelah mutasi disetujui, ustadzah asal tidak lagi melihat santri itu.
 
 ## Aturan frontend (tema G)
@@ -149,7 +150,7 @@ apps/web/src/
 
 ## Yang belum ada / batasan yang disengaja
 
-- Pembayaran sebagian, notifikasi otomatis (WA/email), integrasi mutasi bank (Moota), absensi → Fase 4. Preferensi notifikasi sudah tersimpan di `users.prefs`.
+- Pembayaran sebagian, notifikasi otomatis (WA/email), integrasi mutasi bank (Moota) → Fase 4. Absensi sudah ada (menu Absensi); kalender kehadiran di portal wali belum. Preferensi notifikasi sudah tersimpan di `users.prefs`.
 - Penyimpanan bukti masih disk lokal (`STORAGE_DIR`); di Docker wajib volume (`rta_storage`).
 - Keputusan bawaan di `docs/prd.md` §16 belum dikonfirmasi PJ. Bila mengubah perilaku terkait, perbarui tabel itu.
 

@@ -8,6 +8,12 @@ import { FAMILY_SENSITIVE, canSeeSensitive, mask } from '../../common/mask';
 
 export const PHONE_RULE = /^(\+62|62|0)8[0-9]{7,12}$/;
 export const normPhone = (p: string) => p.replace(/[\s-]/g, '').replace(/^(\+62|62)/, '0');
+/**
+ * Label keluarga ("Kel. …") untuk SQL: nama ayah, lalu nama ibu. Data hasil impor boleh tanpa nama orang tua
+ * (migrasi 015), jadi jangan menampilkan f.father_name mentah sebagai label.
+ */
+export const FAMILY_LABEL = (f = 'f') =>
+  `CASE WHEN ${f}.id IS NOT NULL THEN COALESCE(NULLIF(${f}.father_name, ''), NULLIF(${f}.mother_name, ''), '(nama wali belum diisi)') END`; // LEFT JOIN tanpa keluarga tetap NULL
 const COLS = `id, father_name AS "fatherName", mother_name AS "motherName", guardian_name AS "guardianName", guardian_relation AS "guardianRelation",
   wa_phone AS "waPhone", backup_phone AS "backupPhone", address, father_job AS "fatherJob", mother_job AS "motherJob", created_at AS "createdAt"`;
 // scope: keluarga punya minimal satu santri di cabang pengguna ($1 = int[] atau NULL = semua)
@@ -24,6 +30,8 @@ export class FamilyDto {
   @IsOptional() @IsString() fatherJob?: string;
   @IsOptional() @IsString() motherJob?: string;
 }
+/** Keluarga dari impor data lama: nama ayah/ibu, no. WA, dan alamat boleh kosong (form tetap memakai FamilyDto). */
+export type FamilyInput = Omit<FamilyDto, 'fatherName' | 'motherName' | 'waPhone' | 'address'> & { fatherName?: string; motherName?: string; waPhone?: string; address?: string };
 
 @Injectable()
 export class FamiliesService {
@@ -63,11 +71,12 @@ export class FamiliesService {
     return { found: true, inScope: true, family: { ...mask(user, f, FAMILY_SENSITIVE), students: kids } };
   }
 
-  async create(user: AuthUser, dto: FamilyDto, client?: any) {
+  async create(user: AuthUser, dto: FamilyInput, client?: any) {
     const f = await this.db.one(
       `INSERT INTO families(father_name, mother_name, guardian_name, guardian_relation, wa_phone, backup_phone, address, father_job, mother_job)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${COLS}`,
-      [dto.fatherName, dto.motherName, dto.guardianName ?? null, dto.guardianRelation ?? null, normPhone(dto.waPhone), dto.backupPhone ? normPhone(dto.backupPhone) : null, dto.address, dto.fatherJob ?? null, dto.motherJob ?? null], client);
+      [dto.fatherName || null, dto.motherName || null, dto.guardianName ?? null, dto.guardianRelation ?? null, dto.waPhone ? normPhone(dto.waPhone) : null,
+        dto.backupPhone ? normPhone(dto.backupPhone) : null, dto.address || null, dto.fatherJob ?? null, dto.motherJob ?? null], client);
     await this.audit.log(user.id, 'create', 'family', f!.id, null, { fatherName: f!.fatherName, motherName: f!.motherName }, client);
     return f!;
   }

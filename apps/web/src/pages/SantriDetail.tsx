@@ -26,13 +26,13 @@ export default function SantriDetail() {
   const refresh = () => { qc.invalidateQueries({ queryKey: ['student', id] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); };
   const open = (d: typeof dlg) => {
     setErr(''); setDlg(d);
-    if (d === 'edit') setForm({ fullName: s.fullName, nickname: s.nickname ?? '', gender: s.gender, birthPlace: s.birthPlace, birthDate: s.birthDate, registrationNote: s.registrationNote ?? '', school: s.school ?? '', healthNotes: s.healthNotes === 'Disembunyikan' ? '' : s.healthNotes ?? '', classId: s.classId, sppRate: s.sppRate, subsidyId: s.subsidyId ? String(s.subsidyId) : '' });
+    if (d === 'edit') setForm({ fullName: s.fullName, nickname: s.nickname ?? '', gender: s.gender, birthPlace: s.birthPlace ?? '', birthDate: s.birthDate ?? '', registrationNote: s.registrationNote ?? '', school: s.school ?? '', healthNotes: s.healthNotes === 'Disembunyikan' ? '' : s.healthNotes ?? '', classId: s.classId, sppRate: s.sppRate, subsidyId: s.subsidyId ? String(s.subsidyId) : '' });
     if (d === 'status') setForm({ action: s.status === 'INDENT' ? 'MULAI' : s.status === 'CUTI' ? 'AKTIF' : 'CUTI', effectiveDate: new Date().toISOString().slice(0, 10), reason: '', note: '' });
   };
   const save = async () => {
     setErr('');
     try {
-      if (dlg === 'edit') { const b: any = { fullName: form.fullName, nickname: form.nickname, gender: form.gender, birthPlace: form.birthPlace, birthDate: form.birthDate, registrationNote: form.registrationNote, school: form.school, healthNotes: form.healthNotes, classId: Number(form.classId) }; if (can(user, 'spp.input')) {
+      if (dlg === 'edit') { const b: any = { fullName: form.fullName, nickname: form.nickname, gender: form.gender, birthPlace: form.birthPlace || undefined, birthDate: form.birthDate || undefined, registrationNote: form.registrationNote, school: form.school, healthNotes: form.healthNotes, classId: Number(form.classId) }; if (can(user, 'spp.input')) {
         // '' = tanpa subsidi (atau label lama dibiarkan), 'none' = cabut label lama, angka = kategori Pengaturan
         const v = form.subsidyId;
         if (v === 'none' || (v === '' && s.subsidyId)) b.subsidyId = null; else if (v) b.subsidyId = Number(v);
@@ -54,7 +54,7 @@ export default function SantriDetail() {
       <Link to="/santri" className="inline-flex items-center gap-1 text-sm font-semibold"><ChevronLeft size={16} />Daftar santri</Link>
       <section className="rounded-[30px] bg-brand-50 p-5 md:p-6 flex flex-wrap items-center gap-5">
         <Avatar name={s.fullName} size={76} square />
-        <div className="flex-1 min-w-[220px]"><h1 className="h1">{s.fullName}</h1><div className="text-sm text-n-600 mt-1">{s.nis} · {s.branch.name} {LEVEL[s.class.level] ?? s.class.name} · {s.age} tahun</div><div className="mt-2.5"><Badge status={s.status} /></div></div>
+        <div className="flex-1 min-w-[220px]"><h1 className="h1">{s.fullName}</h1><div className="text-sm text-n-600 mt-1">{s.nis} · {s.branch.name} {LEVEL[s.class.level] ?? s.class.name}{s.age != null && ` · ${s.age} tahun`}</div><div className="mt-2.5"><Badge status={s.status} /></div></div>
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           {can(user, 'santri.edit') && s.status !== 'KELUAR' && <button className="btn flex-1 md:flex-none bg-white text-brand-800" onClick={() => open('edit')}>Edit</button>}
           {can(user, 'santri.edit') && ['INDENT', 'AKTIF', 'CUTI'].includes(s.status) && <button className="btn flex-1 md:flex-none bg-white text-butter-fg" onClick={() => open('status')}>{statusLabel}</button>}
@@ -67,9 +67,9 @@ export default function SantriDetail() {
 
       {tab === 'ringkas' && <div className="grid lg:grid-cols-3 gap-4 items-start">
         <div className="lg:col-span-2 grid md:grid-cols-2 gap-4">
-          <div className="space-y-2"><h2 className="h2 px-1">Identitas</h2><KV rows={[['ID santri', s.nis], ['Nama panggilan', s.nickname || '—'], ['Jenis kelamin', s.gender === 'L' ? 'Laki-laki' : 'Perempuan'], ['Tempat, tgl lahir', `${s.birthPlace}, ${tgl(s.birthDate)}`], ['Sekolah', s.school || '—'], ['Tanggal bergabung', tgl(s.joinDate)], ['Keterangan pendaftaran', s.registrationNote || '—'],
+          <div className="space-y-2"><h2 className="h2 px-1">Identitas</h2><KV rows={[['ID santri', s.nis], ['Nama panggilan', s.nickname || '—'], ['Jenis kelamin', s.gender === 'L' ? 'Laki-laki' : 'Perempuan'], ['Tempat, tgl lahir', [s.birthPlace, s.birthDate && tgl(s.birthDate)].filter(Boolean).join(', ') || '—'], ['Sekolah', s.school || '—'], ['Tanggal bergabung', s.joinDate ? tgl(s.joinDate) : 'Santri lama (tidak tercatat)'], ['Keterangan pendaftaran', s.registrationNote || '—'],
             ['Tarif SPP', rupiah(s.sppRate)], ...('subsidyLabel' in s ? [['Kategori subsidi', s.subsidyLabel ? `${s.subsidyLabel}${s.subsidySince ? ` · sejak ${tgl(s.subsidySince)}` : ''}` : '—'] as [string, any]] : []), ['Catatan kesehatan', sensitive(s.healthNotes)]]} /></div>
-          <div className="space-y-2"><h2 className="h2 px-1">Keluarga</h2><KV rows={[['Ayah', s.family.fatherName], ['Ibu', s.family.motherName], ...(s.family.guardianName ? [['Wali', `${s.family.guardianName} (${s.family.guardianRelation ?? ''})`] as [string, any]] : []), ['No WA wali', sensitive(s.family.waPhone)], ['Alamat', sensitive(s.family.address)], ['Pekerjaan ayah', sensitive(s.family.fatherJob)], ['Pekerjaan ibu', sensitive(s.family.motherJob)]]} />
+          <div className="space-y-2"><h2 className="h2 px-1">Keluarga</h2><KV rows={[['Ayah', s.family.fatherName || '—'], ['Ibu', s.family.motherName || '—'], ...(s.family.guardianName ? [['Wali', `${s.family.guardianName} (${s.family.guardianRelation ?? ''})`] as [string, any]] : []), ['No WA wali', sensitive(s.family.waPhone)], ['Alamat', sensitive(s.family.address)], ['Pekerjaan ayah', sensitive(s.family.fatherJob)], ['Pekerjaan ibu', sensitive(s.family.motherJob)]]} />
             {s.siblings.length > 0 && <div className="card p-3.5 bg-butter-bg text-sm text-butter-fg"><b>Saudara:</b> {s.siblings.map((x: any) => `${x.fullName} (${x.status.toLowerCase()})`).join(', ')}</div>}</div>
         </div>
         <div className="space-y-4">

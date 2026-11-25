@@ -30,6 +30,7 @@ import Pengaturan from './pages/Pengaturan';
 import Agenda from './pages/Agenda';
 import Kas from './pages/Kas';
 import Pendaftaran from './pages/Pendaftaran';
+import Absensi from './pages/Absensi';
 import { can } from './lib/api';
 import { MENU } from './components/Layout';
 
@@ -80,6 +81,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="agenda" element={<Agenda />} />
             <Route path="kas" element={<Kas />} />
             <Route path="pendaftaran" element={<Pendaftaran />} />
+            <Route path="absensi" element={<Absensi />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Route>

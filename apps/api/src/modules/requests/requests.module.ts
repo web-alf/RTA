@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { IsOptional, IsString, MinLength } from 'class-validator';
 import { Db } from '../../db/db.module';
+import { FAMILY_LABEL } from '../families/families.module';
 import { CurrentUser, Perm } from '../../common/auth';
 import type { AuthUser } from '../../common/auth';
 import { AuditService } from '../../common/audit.service';
@@ -82,7 +83,7 @@ export class RequestsService {
   async detail(user: AuthUser, id: number) {
     const r = await this.db.one(
       `SELECT r.*, s.full_name, s.nis, s.spp_rate, s.status AS student_status, s.family_id, b.name AS from_branch, c.name AS from_class,
-              tb.name AS to_branch, tb.spp_standard AS to_spp, tc.name AS to_class, u.name AS requested_by_name, f.father_name
+              tb.name AS to_branch, tb.spp_standard AS to_spp, tc.name AS to_class, u.name AS requested_by_name, ${FAMILY_LABEL()} AS father_name
        FROM requests r JOIN students s ON s.id = r.student_id JOIN branches b ON b.id = COALESCE(r.from_branch_id, s.branch_id) JOIN classes c ON c.id = COALESCE(r.from_class_id, s.class_id)
        JOIN families f ON f.id = s.family_id JOIN users u ON u.id = r.requested_by
        LEFT JOIN branches tb ON tb.id = r.target_branch_id LEFT JOIN classes tc ON tc.id = r.target_class_id

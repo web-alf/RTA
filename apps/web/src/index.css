@@ -42,5 +42,6 @@ html, body { background: #fcf8fb; color: #2d0b26; font-family: "Plus Jakarta San
   .chip { @apply inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-[13px] font-semibold whitespace-nowrap transition; }
   .chip-on { @apply chip bg-brand-600 text-white shadow-brand; }
   .chip-off { @apply chip bg-white text-brand-800 shadow-chip hover:bg-n-50; }
+  .hatch { background: repeating-linear-gradient(135deg, theme('colors.n.200') 0 3px, theme('colors.brand.50') 3px 6px); }
   .scroll-x { @apply flex gap-2 overflow-x-auto -mx-4 px-4 py-1 md:mx-0 md:px-0; }
 }
