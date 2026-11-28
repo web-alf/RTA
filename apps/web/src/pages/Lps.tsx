@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Lock } from 'lucide-react';
-import { can, download, get, monthWIB, patch, post } from '../lib/api';
+import { FileText, Lock, MessageCircle } from 'lucide-react';
+import { can, download, get, monthWIB, patch, post, tgl } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useToast } from '../components/Toast';
 import { Alert, Avatar, Badge, Bar, Card, Chips, COLOR, Dialog, Drawer, Empty, Field, PageHeader, Ring, SearchBox, StackBar } from '../components/ui';
@@ -14,6 +14,21 @@ const NEXT: Record<string, [string, string, string]> = {
   DISETUJUI: ['publish', 'Terbitkan', 'lps.setujui'],
 };
 const fmt = (n: number) => String(n).replace('.', ',');
+/** Kirim LPS terbit ke WA wali: hanya PJ & ustadzah (no. WA wali = data sensitif; server tetap memeriksa). */
+const canWa = (user: any) => ['PJ', 'USTADZAH'].includes(user?.role);
+/** Pola sama dengan kirim tagihan: jendela dibuka saat diklik (agar tidak diblokir), lalu diarahkan ke wa.me berisi link bertoken. */
+async function sendWa(id: number, toast: (t: string, k?: 'success' | 'danger') => void, done: () => void) {
+  const w = window.open('', '_blank');
+  try {
+    const d = await post(`/lps/${id}/wa`);
+    if (w) w.location.href = d.waUrl;
+    else window.location.href = d.waUrl;
+    done();
+  } catch (e: any) {
+    w?.close();
+    toast(e.message, 'danger');
+  }
+}
 
 export default function Lps() {
   const { user } = useAuth();
@@ -239,9 +254,21 @@ export default function Lps() {
                       </td>
                       <td className="td pr-5 text-right">
                         {r.id && (r.status === 'TERBIT' || !readOnly) ? (
-                          <button className="btn-soft !h-9" onClick={() => setOpen(r)}>
-                            {readOnly || r.status === 'TERBIT' ? 'Lihat' : r.status === 'DRAFT' ? 'Isi' : 'Periksa'}
-                          </button>
+                          <div className="inline-flex items-center gap-2">
+                            {r.status === 'TERBIT' && canWa(user) && (
+                              <button
+                                className="btn-wa !h-9"
+                                title={r.waSentAt ? `Terakhir dikirim ${tgl(r.waSentAt)}` : 'Belum pernah dikirim'}
+                                onClick={() => sendWa(r.id, toast, () => qc.invalidateQueries({ queryKey: ['lps'] }))}
+                              >
+                                <MessageCircle size={15} />
+                                {r.waSentAt ? 'Kirim ulang' : 'Kirim WA'}
+                              </button>
+                            )}
+                            <button className="btn-soft !h-9" onClick={() => setOpen(r)}>
+                              {readOnly || r.status === 'TERBIT' ? 'Lihat' : r.status === 'DRAFT' ? 'Isi' : 'Periksa'}
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-xs text-n-500">{r.id ? 'Belum terbit' : ''}</span>
                         )}
@@ -314,10 +341,21 @@ function LpsDrawer({ row, aspekList, nilaiList, period, label, onClose }: { row:
       badge={<Badge status={row.status} />}
       footer={
         <div className="flex flex-wrap gap-3">
+          {row.status === 'TERBIT' && canWa(user) && (
+            <button className="btn-wa flex-1" onClick={() => sendWa(row.id, toast, () => done(row.waSentAt ? 'WhatsApp dibuka · link lama dicabut' : 'WhatsApp dibuka'))}>
+              <MessageCircle size={17} />
+              Kirim ke WA wali
+            </button>
+          )}
           {row.status === 'TERBIT' && (
-            <button className="btn-primary flex-1" onClick={() => download(`/lps/${row.id}/pdf`, `LPS-${row.nis}-${period}.pdf`)}>
+            <button className={`${canWa(user) ? 'btn-secondary' : 'btn-primary'} flex-1`} onClick={() => download(`/lps/${row.id}/pdf`, `LPS-${row.nis}-${period}.pdf`)}>
               Unduh PDF
             </button>
+          )}
+          {row.status === 'TERBIT' && canWa(user) && (
+            <p className="w-full text-xs text-n-600">
+              {row.waSentAt ? `Terakhir dikirim ${tgl(row.waSentAt)}. Kirim ulang membuat link baru dan mencabut link lama.` : 'Membuka chat WhatsApp wali berisi link LPS (berlaku sesuai Pengaturan). Belum pernah dikirim.'}
+            </p>
           )}
           {editable && (
             <button className="btn-secondary flex-1" onClick={() => run(() => patch(`/lps/${row.id}`, { scores, note }), 'Nilai tersimpan')}>

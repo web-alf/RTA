@@ -24,6 +24,7 @@ import Bayar from './pages/Bayar';
 import Lps from './pages/Lps';
 import Profil from './pages/Profil';
 import BayarWali from './pages/BayarWali';
+import LaporanWali from './pages/LaporanWali';
 import Anak from './pages/Anak';
 import Perkembangan from './pages/Perkembangan';
 import Pengaturan from './pages/Pengaturan';
@@ -57,6 +58,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/bayar/:token" element={<BayarWali />} />
+        <Route path="/laporan/:token" element={<LaporanWali />} />
         <Route element={<Protected />}>
           <Route element={<Layout />}>
             <Route index element={<Home />} />

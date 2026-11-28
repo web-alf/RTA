@@ -117,7 +117,7 @@ Jaga prosesnya dengan systemd atau pm2 (`pm2 start "bun src/main.ts" --name rta-
 API dikompilasi ke JavaScript di laptop, lalu dijalankan Node di hosting. Database memakai PostgreSQL dari cPanel (atau Supabase).
 
 1. **Build di laptop:** `bun install && bun run build:api` → hasil di `apps/api/dist/`.
-2. **Unggah** ke folder di luar `public_html`, mis. `~/rta-api/`: folder `dist/`, folder `sql/`, dan `package.json` dari `apps/api/`. Jangan unggah `node_modules`, `.env` lokal, `dev/`, `test/`, atau `storage/`.
+2. **Unggah** ke folder di luar `public_html`, mis. `~/rta-api/`: folder `dist/`, folder `sql/`, folder `assets/` (template & font PDF LPS), dan `package.json` dari `apps/api/`. Jangan unggah `node_modules`, `.env` lokal, `dev/`, `test/`, atau `storage/`.
 3. **Database:** cPanel → *PostgreSQL Database Wizard* → buat database & user, beri semua hak. `DATABASE_URL=postgres://<user>:<password>@localhost:5432/<database>` (nama memakai awalan akun cPanel).
 4. **Setup Node.js App → Create Application:**
    - Node.js version **20.x** (atau 22.x), Application mode **Production**.

@@ -22,10 +22,13 @@ export const SETTING_DEFAULTS = {
   attendanceAlpaStreak: 3,             // alpa berturut-turut (pertemuan) yang memicu tanda perlu perhatian
   attendanceMinPercent: 80,            // kehadiran bulan ini di bawah nilai ini = perlu perhatian
   attendanceWaTemplate: "Assalamu'alaikum Ayah/Bunda, semoga sehat selalu 🌿\nAnanda {nama} belum hadir di RTA pada {tanggal}.\nBila ada kendala, mohon kabari ustadzah ya. Jazakumullahu khairan 🤍\nPortal wali: {link}",
+  // pesan WA saat LPS terbit dikirim ke wali (link bertoken, masa berlaku = linkDays)
+  lpsWaTemplate: "Assalamu'alaikum Ayah/Bunda 🌿\nAlhamdulillah, Laporan Perkembangan Santri (LPS) Ananda {nama} bulan {periode} sudah terbit.\nSilakan dilihat & diunduh di sini: {link}\nJazakumullahu khairan atas dukungannya 🤍",
 };
 export type Settings = typeof SETTING_DEFAULTS;
 export const WA_PLACEHOLDERS = ['tagihan', 'nama', 'total', 'link'];
 export const ATTENDANCE_WA_PLACEHOLDERS = ['nama', 'tanggal', 'link'];
+export const LPS_WA_PLACEHOLDERS = ['nama', 'periode', 'link'];
 const MAX_FEE = 10_000_000;
 
 /** Isi template WA. Placeholder yang tidak dikenal sudah ditolak saat disimpan. */
@@ -42,6 +45,7 @@ class SettingsDto {
   @IsOptional() @IsInt() @Min(2, { message: 'Ambang alpa berturut-turut minimal 2' }) @Max(10, { message: 'Ambang alpa berturut-turut maksimal 10' }) attendanceAlpaStreak?: number;
   @IsOptional() @IsInt() @Min(50, { message: 'Ambang kehadiran minimal 50%' }) @Max(100, { message: 'Ambang kehadiran maksimal 100%' }) attendanceMinPercent?: number;
   @IsOptional() @IsString() @MaxLength(500, { message: 'Template WA absensi maksimal 500 karakter' }) attendanceWaTemplate?: string;
+  @IsOptional() @IsString() @MaxLength(500, { message: 'Template WA LPS maksimal 500 karakter' }) lpsWaTemplate?: string;
 }
 class BranchBankDto {
   @IsString() @Length(2, 60, { message: 'Nama bank 2–60 karakter' }) bankName: string;
@@ -89,7 +93,7 @@ export class SettingsService {
        FROM branches b WHERE b.is_active AND ($1::int[] IS NULL OR b.id = ANY($1)) ORDER BY b.id`, [user.branchIds]);
     const banks = await this.banks(user.branchIds);
     const { bankName, bankAccount, bankHolder, ...rest } = values;
-    return { values: rest, defaults: SETTING_DEFAULTS, placeholders: WA_PLACEHOLDERS, attendancePlaceholders: ATTENDANCE_WA_PLACEHOLDERS, branches, banks, updatedAt: last?.updatedAt ?? null, updatedBy: last?.updatedBy ?? null };
+    return { values: rest, defaults: SETTING_DEFAULTS, placeholders: WA_PLACEHOLDERS, attendancePlaceholders: ATTENDANCE_WA_PLACEHOLDERS, lpsPlaceholders: LPS_WA_PLACEHOLDERS, branches, banks, updatedAt: last?.updatedAt ?? null, updatedBy: last?.updatedBy ?? null };
   }
 
   /** Rekening satu cabang. PJ semua cabang; ustadzah hanya cabangnya (di luar scope = 404). */
@@ -113,6 +117,7 @@ export class SettingsService {
       if (k === 'attendanceDays') v = [...new Set(v as number[])].sort((a, b) => a - b);
       if (k === 'waTemplate') this.checkTemplate(v, WA_PLACEHOLDERS);
       if (k === 'attendanceWaTemplate') this.checkTemplate(v, ATTENDANCE_WA_PLACEHOLDERS);
+      if (k === 'lpsWaTemplate') this.checkTemplate(v, LPS_WA_PLACEHOLDERS);
       if (JSON.stringify(v) !== JSON.stringify(cur[k])) (next as any)[k] = v;
     }
     if (!Object.keys(next).length) return { ok: true, changed: 0 };

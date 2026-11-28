@@ -135,6 +135,28 @@ r = await pj(`/lps/${d.id}/submit`, { method: 'POST' }); ok(r.s === 400, 'kirim 
 r = await pj(`/lps/${d.id}`, { method: 'PATCH', body: JSON.stringify({ scores: { BTQ: 'Sangat baik', Tahsin: 'Baik', Adab: 'Sangat baik', 'Doa harian': 'Perlu latihan' }, note: 'Semangat murajaah.' }) }); ok(r.s === 200, 'nilai diisi');
 for (const a of ['submit', 'approve', 'publish']) { r = await pj(`/lps/${d.id}/${a}`, { method: 'POST' }); ok(r.s === 201, `${a} → ${r.j.status}`); }
 r = await pj(`/lps/${d.id}/pdf`); ok(r.s === 200 && String(r.j).startsWith('%PDF'), 'PDF LPS terbit');
+// kirim LPS ke WA wali: link bertoken (pola /bayar/:token), nomor wali otomatis
+r = await pj(`/lps/${d.id}/wa`, { method: 'POST' });
+ok(r.s === 201 && /^https:\/\/wa\.me\/62\d+\?text=/.test(r.j.waUrl) && /\/laporan\/[\w-]{20,}$/.test(r.j.url) && r.j.message.includes(r.j.url), 'kirim LPS ke WA: wa.me ke no. wali + link LPS di pesan');
+ok(!/Reguler|Saudara|subsid/i.test(r.j.message), 'pesan WA LPS tanpa label subsidi');
+const lpsTok1 = r.j.url.split('/laporan/')[1];
+const pubLps = (p: string) => fetch429(B + p).then(async (x) => ({ s: x.status, t: await x.text(), type: x.headers.get('content-type') ?? '', disp: x.headers.get('content-disposition') ?? '' }));
+let pl = await pubLps(`/public/lps/${lpsTok1}`); let pj1 = JSON.parse(pl.t);
+ok(pl.s === 200 && !!pj1.who && !!pj1.periodLabel && !!pj1.expiresAt, `halaman LPS wali tanpa login: ${pj1.who}, ${pj1.periodLabel}`);
+ok(!/waPhone|address|nis|scores|note|subsid|familyId/i.test(pl.t), 'info publik LPS hanya data minimum');
+pl = await pubLps(`/public/lps/${lpsTok1}/pdf`); ok(pl.s === 200 && pl.t.startsWith('%PDF') && pl.disp.startsWith('attachment'), 'wali mengunduh PDF lewat link');
+pl = await pubLps(`/public/lps/${lpsTok1}/pdf?view=1`); ok(pl.s === 200 && pl.disp.startsWith('inline'), 'wali melihat PDF di browser (inline)');
+r = await pj('/lps'); ok(!!r.j.rows.find((x: any) => x.id === d.id)?.waSentAt, 'daftar LPS mencatat waktu terakhir dikirim');
+r = await pj(`/lps/${d.id}/wa`, { method: 'POST' }); const lpsTok2 = r.j.url.split('/laporan/')[1];
+pl = await pubLps(`/public/lps/${lpsTok1}`); ok(pl.s === 404, 'kirim ulang mencabut link lama (404)');
+pl = await pubLps(`/public/lps/${lpsTok2}`); ok(pl.s === 200, 'link baru berlaku');
+pl = await pubLps('/public/lps/token-ngawur-xxxxxxxxxxxxxxxx'); ok(pl.s === 404, 'token tidak dikenal ditolak (404)');
+r = await mn(`/lps/${d.id}/wa`, { method: 'POST' }); ok(r.s === 403, 'manajer tidak bisa kirim LPS ke WA (no. wali sensitif)');
+const lpsDraft = (await pj('/lps')).j.rows.find((x: any) => x.id && x.status !== 'TERBIT');
+r = await pj(`/lps/${lpsDraft.id}/wa`, { method: 'POST' }); ok(r.s === 400, 'LPS belum terbit tidak bisa dikirim');
+r = await us(`/lps/${d.id}/wa`, { method: 'POST' });
+ok(d.branchName === 'Supriyadi' ? r.s === 201 : r.s === 404, `ustadzah: kirim LPS cabangnya saja (${d.branchName} → ${r.s})`);
+r = await pj('/audit?entity=lps'); ok(r.s !== 200 || !JSON.stringify(r.j).includes(lpsTok2), 'token link tidak tertulis di audit');
 r = await us('/lps'); ok(r.s === 200 && r.j.rows.every((x: any) => x.branchName === 'Supriyadi'), 'ustadzah melihat LPS cabangnya saja');
 r = await us('/lps/generate', { method: 'POST', body: JSON.stringify({ period: '2026-10' }) }); ok(r.s === 403, 'ustadzah tidak bisa membuat LPS (hanya baca)');
 r = await pj('/lps'); ok(r.j.aspects.length === 4 && r.j.branches.length === 4, 'ringkasan grafik: 4 aspek, 4 cabang');

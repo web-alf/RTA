@@ -1,12 +1,18 @@
-import { BadRequestException, Body, Controller, Get, Injectable, Module, NotFoundException, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Module, NotFoundException, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsObject, IsOptional, IsString, Matches } from 'class-validator';
+import { createHash, randomBytes } from 'crypto';
 import type { Response } from 'express';
-import PDFDocument from 'pdfkit';
 import { Db } from '../../db/db.module';
 import type { AuthUser } from '../../common/auth';
-import { CurrentUser, Perm } from '../../common/auth';
+import { CurrentUser, Perm, Public } from '../../common/auth';
 import { AuditService } from '../../common/audit.service';
+import { SENSITIVE_ROLES } from '../../common/permissions';
 import { monthLabel, monthStart } from '../../common/time';
+import { SettingsService, renderWa } from '../settings/settings.module';
+import { renderLpsPdf } from './lps-pdf';
+
+const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 export const ASPEK = ['BTQ', 'Tahsin', 'Adab', 'Doa harian'];
 export const NILAI = ['Sangat baik', 'Baik', 'Perlu latihan'];
@@ -20,7 +26,7 @@ class ReviseDto { @IsString() note: string; }
 
 @Injectable()
 export class LpsService {
-  constructor(private db: Db, private audit: AuditService) {}
+  constructor(private db: Db, private audit: AuditService, private settings: SettingsService) {}
   private ids(u: AuthUser, b?: number) { return u.branchIds ? (b ? u.branchIds.filter((x) => x === Number(b)) : u.branchIds) : b ? [Number(b)] : null; }
 
   async list(user: AuthUser, p: { period?: string; status?: string; q?: string; branchId?: number }) {
@@ -29,7 +35,8 @@ export class LpsService {
     const rows = await this.db.many(
       `SELECT s.id AS "studentId", s.full_name AS "fullName", s.nis, c.name AS "className", b.id AS "branchId", b.name AS "branchName",
               r.id, COALESCE(r.status, 'BELUM') AS status, r.scores, r.note, r.hafalan_percent::float AS "hafalanPercent", r.hafalan_position AS "hafalanPosition",
-              u.name AS "updatedBy", r.updated_at AS "updatedAt"
+              u.name AS "updatedBy", r.updated_at AS "updatedAt",
+              (SELECT MAX(l.created_at) FROM lps_links l WHERE l.lps_id = r.id) AS "waSentAt"
        FROM students s JOIN classes c ON c.id = s.class_id JOIN branches b ON b.id = s.branch_id
        LEFT JOIN lps_reports r ON r.student_id = s.id AND r.period = $1 LEFT JOIN users u ON u.id = r.updated_by
        WHERE s.status = 'AKTIF' AND ($2::int[] IS NULL OR s.branch_id = ANY($2))
@@ -70,7 +77,7 @@ export class LpsService {
     return { created: students.length };
   }
 
-  private static FULL = `SELECT r.*, s.full_name, s.nis, c.name AS class_name, b.name AS branch_name FROM lps_reports r JOIN students s ON s.id = r.student_id JOIN classes c ON c.id = s.class_id JOIN branches b ON b.id = r.branch_id`;
+  private static FULL = `SELECT r.*, s.full_name, s.nis, s.gender, c.name AS class_name, c.level AS class_level, b.name AS branch_name FROM lps_reports r JOIN students s ON s.id = r.student_id JOIN classes c ON c.id = s.class_id JOIN branches b ON b.id = r.branch_id`;
   private async get(user: AuthUser, id: number) {
     const r = await this.db.one(`${LpsService.FULL} WHERE r.id = $1 AND ($2::int[] IS NULL OR r.branch_id = ANY($2))`, [id, user.branchIds]);
     if (!r) throw new NotFoundException('LPS tidak ditemukan');
@@ -111,7 +118,48 @@ export class LpsService {
   async pdf(user: AuthUser, id: number, res: Response) {
     const r = await this.get(user, id);
     if (r.status !== 'TERBIT' && !user.perms.includes('lps.setujui')) throw new BadRequestException('LPS belum terbit');
-    this.render(r, res);
+    await this.render(r, res);
+  }
+
+  // ---------------- Kirim ke WA wali (pola link tagihan /bayar/:token) ----------------
+  /** Buat link LPS bertoken (link lama LPS ini dicabut) + pesan dari template Pengaturan + URL wa.me ke no. WA keluarga. Hanya LPS terbit; hanya PJ & ustadzah (no. WA = data sensitif). */
+  async waLink(user: AuthUser, id: number) {
+    if (!SENSITIVE_ROLES.includes(user.role)) throw new ForbiddenException('Hanya PJ RTA dan ustadzah yang bisa mengirim LPS ke wali');
+    const r = await this.get(user, id);
+    if (r.status !== 'TERBIT') throw new BadRequestException('Hanya LPS yang sudah terbit yang bisa dikirim ke wali');
+    const f = await this.db.one('SELECT f.wa_phone, s.nickname FROM students s JOIN families f ON f.id = s.family_id WHERE s.id = $1', [r.student_id]);
+    const phone = String(f?.wa_phone ?? '').replace(/\D/g, '').replace(/^0/, '62');
+    if (phone.length < 9) throw new BadRequestException('No. WA wali belum diisi. Lengkapi dulu di menu Wali santri, lalu kirim ulang.');
+    const cfg = await this.settings.get();
+    const raw = randomBytes(24).toString('base64url');
+    await this.db.tx(async (c) => {
+      await c.query('UPDATE lps_links SET revoked = true WHERE lps_id = $1 AND revoked = false', [id]);
+      await c.query('INSERT INTO lps_links(lps_id, token_hash, expires_at, created_by) VALUES ($1, $2, now() + make_interval(days => $4), $3)', [id, sha(raw), user.id, cfg.linkDays]);
+    });
+    const base = (process.env.PUBLIC_WEB_URL ?? 'http://localhost:5173').replace(/\/$/, '');
+    const url = `${base}/laporan/${raw}`;
+    const period = String(r.period).slice(0, 10);
+    const message = renderWa(cfg.lpsWaTemplate, { nama: f?.nickname || String(r.full_name).split(' ')[0], periode: monthLabel(period), link: url });
+    await this.audit.log(user.id, 'kirim_lps_wa', 'lps', id, null, { period: period.slice(0, 7), linkDays: cfg.linkDays });
+    return { url, message, waUrl: `https://wa.me/${phone}?text=${encodeURIComponent(message)}` };
+  }
+
+  // ---------------- Halaman publik wali (tanpa login): data minimum ----------------
+  private async byToken(token: string) {
+    const l = await this.db.one('SELECT lps_id, expires_at, revoked FROM lps_links WHERE token_hash = $1', [sha(String(token))]);
+    if (!l || l.revoked || new Date(l.expires_at) < new Date()) throw new NotFoundException('Link tidak berlaku. Silakan minta link baru ke ustadzah.');
+    const r = await this.db.one(`${LpsService.FULL} WHERE r.id = $1 AND r.status = 'TERBIT'`, [l.lps_id]);
+    if (!r) throw new NotFoundException('Link tidak berlaku. Silakan minta link baru ke ustadzah.');
+    return { r, expiresAt: l.expires_at as string };
+  }
+  async publicInfo(token: string) {
+    const { r, expiresAt } = await this.byToken(token);
+    const nick = (await this.db.one('SELECT nickname FROM students WHERE id = $1', [r.student_id]))?.nickname;
+    return { who: nick || String(r.full_name).split(' ')[0], periodLabel: monthLabel(String(r.period).slice(0, 10)), branchName: r.branch_name, expiresAt };
+  }
+  async publicPdf(token: string, res: Response, inline: boolean) {
+    const { r } = await this.byToken(token);
+    await this.render(r, res, inline);
   }
 
   // ---------------- Portal wali: hanya LPS terbit milik anak di keluarganya ----------------
@@ -126,22 +174,28 @@ export class LpsService {
   async familyPdf(familyId: number, id: number, res: Response) {
     const r = await this.db.one(`${LpsService.FULL} WHERE r.id = $1 AND s.family_id = $2 AND r.status = 'TERBIT'`, [id, familyId]);
     if (!r) throw new NotFoundException('LPS tidak ditemukan');
-    this.render(r, res);
+    await this.render(r, res);
   }
 
-  private render(r: any, res: Response) {
-    const doc = new PDFDocument({ size: 'A5', margin: 36 });
+  /** PDF bertema (lps-pdf.ts): identitas, nilai 4 aspek, hafalan, rekap absensi bulan periode LPS, catatan. */
+  private async render(r: any, res: Response, inline = false) {
+    const period = String(r.period).slice(0, 10);
+    const att = await this.db.one<{ H: number; I: number; S: number; A: number }>(
+      `SELECT COUNT(*) FILTER (WHERE status = 'H')::int AS "H", COUNT(*) FILTER (WHERE status = 'I')::int AS "I",
+              COUNT(*) FILTER (WHERE status = 'S')::int AS "S", COUNT(*) FILTER (WHERE status = 'A')::int AS "A"
+       FROM attendance WHERE student_id = $1 AND date >= $2::date AND date < ($2::date + interval '1 month')`, [r.student_id, period]);
+    const startM = (await this.settings.get()).academicYearStartMonth;
+    const [y, m] = period.split('-').map(Number);
+    const y0 = m >= startM ? y : y - 1;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="LPS-${r.nis}-${String(r.period).slice(0, 7)}.pdf"`);
-    doc.pipe(res);
-    doc.fontSize(15).fillColor('#ad1d8e').text('Laporan Perkembangan Santri');
-    doc.fontSize(10).fillColor('#4f404b').text(`Rumah Tahfidz Al-Fatihah · ${monthLabel(String(r.period))}`).moveDown();
-    doc.fontSize(12).fillColor('#1f191e').text(r.full_name).fontSize(10).fillColor('#4f404b').text(`${r.nis} · ${r.class_name}`).moveDown();
-    doc.fontSize(11).fillColor('#1f191e').text(`Capaian hafalan: ${r.hafalan_percent ?? '-'}%`).fontSize(10).fillColor('#4f404b').text(r.hafalan_position ?? '').moveDown();
-    for (const a of ASPEK) doc.fontSize(11).fillColor('#1f191e').text(`${a}: ${r.scores?.[a] ?? '-'}`);
-    doc.moveDown().fontSize(10).fillColor('#4f404b').text('Catatan ustadzah:').fillColor('#1f191e').text((r.note ?? '-').replace(/\n\[Revisi\].*/g, ''));
-    doc.moveDown(2).fontSize(9).fillColor('#6b5766').text('Jazakumullahu khairan atas dukungan Bapak/Ibu.');
-    doc.end();
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="LPS-${r.nis}-${period.slice(0, 7)}.pdf"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    renderLpsPdf({
+      fullName: r.full_name, nis: r.nis, gender: r.gender, className: r.class_name, level: r.class_level, branchName: r.branch_name,
+      period, periodLabel: monthLabel(period), yearLabel: `${y0}/${y0 + 1}`,
+      hafalanPercent: r.hafalan_percent == null ? null : Number(r.hafalan_percent), hafalanPosition: r.hafalan_position,
+      scores: r.scores ?? {}, note: r.note, hadir: att ?? { H: 0, I: 0, S: 0, A: 0 },
+    }, res);
   }
 }
 
@@ -150,6 +204,8 @@ export class LpsController {
   constructor(private s: LpsService) {}
   @Get() @Perm('lps.lihat') list(@CurrentUser() u: AuthUser, @Query() q: any) { return this.s.list(u, q); }
   @Post('generate') @Perm('lps.input') gen(@CurrentUser() u: AuthUser, @Body() dto: GenDto) { return this.s.generate(u, dto); }
+  // didaftarkan sebelum ':id/:action' agar tidak tertangkap rute alur status
+  @Post(':id/wa') @Perm('lps.lihat') wa(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number) { return this.s.waLink(u, id); }
   @Patch(':id') @Perm('lps.edit') upd(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdDto) { return this.s.update(u, id, dto); }
   @Post(':id/:action') @Perm('lps.lihat') act(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Param('action') a: string, @Body() dto: any) {
     if (a === 'revise') { if (!u.perms.includes('lps.setujui')) throw new BadRequestException('Hanya PJ yang bisa mengembalikan LPS'); return this.s.revise(u, id, String(dto?.note ?? '')); }
@@ -158,5 +214,13 @@ export class LpsController {
   @Get(':id/pdf') @Perm('lps.lihat') pdf(@CurrentUser() u: AuthUser, @Param('id', ParseIntPipe) id: number, @Res() res: Response) { return this.s.pdf(u, id, res); }
 }
 
-@Module({ controllers: [LpsController], providers: [LpsService, AuditService], exports: [LpsService] })
+/** Publik (wali, tanpa login, dari link WA): dibatasi laju per IP. */
+@Controller('public/lps')
+export class LpsPublicController {
+  constructor(private s: LpsService) {}
+  @Public() @Throttle({ default: { limit: 30, ttl: 60_000 } }) @Get(':token') info(@Param('token') t: string) { return this.s.publicInfo(t); }
+  @Public() @Throttle({ default: { limit: 20, ttl: 60_000 } }) @Get(':token/pdf') pdf(@Param('token') t: string, @Res() res: Response, @Query('view') v?: string) { return this.s.publicPdf(t, res, v === '1'); }
+}
+
+@Module({ controllers: [LpsController, LpsPublicController], providers: [LpsService, AuditService], exports: [LpsService] })
 export class LpsModule {}

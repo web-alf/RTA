@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BadgePercent, Building2, CalendarCheck, CalendarRange, Landmark, MessageCircle, Plus } from 'lucide-react';
+import { BadgePercent, Building2, CalendarCheck, CalendarRange, FileText, Landmark, MessageCircle, Plus } from 'lucide-react';
 import { can, get, patch, post, rupiah, tgl } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useToast } from '../components/Toast';
 import { Alert, Card, Dialog, Field, IconTile, PageHeader, Segmented, Toggle } from '../components/ui';
 
 const BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-const KEYS = ['reregistrationFee', 'academicYearStartMonth', 'registrationMinDp', 'registrationMaxInstallments', 'linkDays', 'waTemplate', 'attendanceDays', 'attendanceAlpaStreak', 'attendanceMinPercent', 'attendanceWaTemplate'] as const;
+const KEYS = ['reregistrationFee', 'academicYearStartMonth', 'registrationMinDp', 'registrationMaxInstallments', 'linkDays', 'waTemplate', 'attendanceDays', 'attendanceAlpaStreak', 'attendanceMinPercent', 'attendanceWaTemplate', 'lpsWaTemplate'] as const;
 const SAMPLE = { tagihan: 'SPP November', nama: 'Aisyah & Hafsah', total: 'Rp300.000', link: 'https://…/bayar/contoh' };
 const render = (t: string) => t.replace(/\{(\w+)\}/g, (m, k) => (SAMPLE as any)[k] ?? m);
 const SAMPLE_ABS = { nama: 'Aisyah', tanggal: '20, 23 & 24 Nov', link: 'https://…/perkembangan' };
 const renderAbs = (t: string) => t.replace(/\{(\w+)\}/g, (m, k) => (SAMPLE_ABS as any)[k] ?? m);
+const SAMPLE_LPS = { nama: 'Aisyah', periode: 'November 2026', link: 'https://…/laporan/contoh' };
+const renderLps = (t: string) => t.replace(/\{(\w+)\}/g, (m, k) => (SAMPLE_LPS as any)[k] ?? m);
 const HARI = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Ahd'];
 
 export default function Pengaturan() {
@@ -222,7 +224,7 @@ export default function Pengaturan() {
       >
         <div className="grid lg:grid-cols-2 gap-5">
           <div className="space-y-4">
-            <Field label="Link wali berlaku (hari)" hint="1–90 hari. Membuat link baru selalu mencabut link lama keluarga itu.">
+            <Field label="Link wali berlaku (hari)" hint="1–90 hari, untuk link tagihan dan link LPS. Membuat link baru selalu mencabut link lama.">
               <input {...num('linkDays')} min={1} max={90} />
             </Field>
             <Field label="Template pesan" hint={`${lines}/5 baris · wajib memuat {link} · tanpa nada menekan, tanpa menyebut kategori subsidi.`}>
@@ -245,6 +247,40 @@ export default function Pengaturan() {
           <div>
             <div className="label">Pratinjau (contoh data)</div>
             <div className="rounded-2xl bg-mint-bg p-4 text-sm whitespace-pre-wrap break-words">{render(form.waTemplate)}</div>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title={
+          <span className="flex items-center gap-3">
+            <IconTile icon={FileText} tone={1} />
+            Pesan WA LPS
+          </span>
+        }
+      >
+        <div className="grid lg:grid-cols-2 gap-5">
+          <div className="space-y-4">
+            <Field label="Template pesan saat LPS dikirim ke wali" hint={`${String(form.lpsWaTemplate).split('\n').length}/5 baris · wajib memuat {link} · masa berlaku link mengikuti pengaturan di atas.`}>
+              <textarea {...txt('lpsWaTemplate')} rows={4} className="input !h-auto py-3 font-mono text-[13px]" />
+            </Field>
+            {edit && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-n-600">
+                Sisipkan:
+                {(d.lpsPlaceholders ?? []).map((p: string) => (
+                  <button key={p} type="button" className="pill h-8 bg-n-50 text-brand-800 font-mono" onClick={() => set('lpsWaTemplate', `${form.lpsWaTemplate}{${p}}`)}>{`{${p}}`}</button>
+                ))}
+                {form.lpsWaTemplate !== d.defaults.lpsWaTemplate && (
+                  <button type="button" className="btn-text !h-8" onClick={() => set('lpsWaTemplate', d.defaults.lpsWaTemplate)}>
+                    Kembalikan bawaan
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="label">Pratinjau (contoh data)</div>
+            <div className="rounded-2xl bg-mint-bg p-4 text-sm whitespace-pre-wrap break-words">{renderLps(form.lpsWaTemplate)}</div>
           </div>
         </div>
       </Card>

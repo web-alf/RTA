@@ -105,6 +105,8 @@ Error seragam: `{ "message": "...", "details": ["..."]? }`. 401 = sesi berakhir,
 |---|---|---|
 | GET | `/public/tagihan/:token` | Nama panggilan, label tagihan, nominal, total, `banks[{name, account, holder, branches[], total}]` (rekening cabang dari tagihan yang perlu dibayar; >1 bila anak beda cabang; `bank` = yang pertama). Tanpa data sensitif. 30/menit |
 | POST | `/public/tagihan/:token/bukti` | multipart `file` → pembayaran MENUNGGU untuk semua tagihan terbuka. 5/menit |
+| GET | `/public/lps/:token` | Link LPS dari WA: `{who, periodLabel, branchName, expiresAt}` (nama panggilan saja). Token dicabut/kedaluwarsa/LPS tidak terbit → 404. 30/menit |
+| GET | `/public/lps/:token/pdf?view=1` | PDF LPS yang sama; `view=1` = tampil di browser (inline), tanpa = unduh. 20/menit |
 
 ## Portal wali (portal.*, khusus akun role WALI)
 Scope = keluarga akun (`users.family_id`); data minimum, tanpa kontak/alamat/kesehatan/label subsidi.
@@ -124,7 +126,8 @@ Scope = keluarga akun (`users.family_id`); data minimum, tanpa kontak/alamat/kes
 | PATCH | `/lps/:id` (edit) | `{scores: {BTQ, Tahsin, Adab, "Doa harian"}, note}` hanya saat Draft |
 | POST | `/lps/:id/submit` (edit) · `/approve` · `/publish` (setujui) | Alur status |
 | POST | `/lps/:id/revise` (setujui) | `{note}` kembalikan ke Draft |
-| GET | `/lps/:id/pdf` | PDF (ustadzah: hanya yang Terbit) |
+| POST | `/lps/:id/wa` (lihat; role PJ/USTADZAH, scope cabang) | Hanya LPS **TERBIT**. Buat link bertoken `/laporan/:token` (hash SHA-256, berlaku `linkDays`, link lama LPS ini dicabut) → `{url, message, waUrl}`; `waUrl` = `wa.me/<no. WA keluarga>` berisi pesan dari `lpsWaTemplate`. No. WA kosong → 400; Manajer → 403. Audit `kirim_lps_wa`. Daftar `/lps` memuat `waSentAt` (terakhir dikirim) |
+| GET | `/lps/:id/pdf` | PDF bertema (template `apps/api/assets/lps/`), memuat rekap absensi bulan periode LPS (ustadzah: hanya yang Terbit) |
 
 ## Pengaturan (pengaturan.*)
 | Method | Path | Keterangan |
